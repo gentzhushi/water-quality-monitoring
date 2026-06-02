@@ -1,0 +1,8 @@
+sensors:
+  - name: sensor1
+    type: hvac
+    rate: 100
+
+  - name: sensor2
+    type: gps
+    rate: 30

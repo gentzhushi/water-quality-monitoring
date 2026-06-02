@@ -1,8 +1,14 @@
 sensors:
   - name: sensor1
-    type: hvac
-    rate: 100
+    type: HVAC
+    rate: 2
+    min:  1
+    max:  100
+    endpoint: http://localhost:8000/measurement
 
   - name: sensor2
-    type: gps
-    rate: 30
+    type: HVAC 
+    rate: 4
+    min:  100
+    max:  200
+    endpoint: http://localhost:8000/measurement

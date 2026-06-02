@@ -1,20 +1,32 @@
 from dataclasses import dataclass
 from enum import Enum
+from random import randrange
+import requests
 from typing import List, Self
 import yaml
-
-
-class SensorType(Enum):
-    HVAC = 1
-    # OTHER_TYPE = 2 ...
-    # rest of sensor types
 
 
 @dataclass(frozen=True)
 class Sensor:
     name: str
-    type: SensorType
+    type: str
     rate: int
+    min:  int
+    max:  int
+    endpoint: str
+
+    def measure(self, value: int | None = None) -> requests.Response:
+        if value is None:
+            value = randrange(self.min, self.max)
+
+        return requests.post(
+            self.endpoint,
+            json={
+                "sensor_name": self.name,
+                "sensor_type": self.type,
+                "value": value
+                }
+            )
 
 
 @dataclass(frozen=True)

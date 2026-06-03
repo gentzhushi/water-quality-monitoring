@@ -1,0 +1,28 @@
+services:
+  ph-sensor:
+    build:
+      context: ./sensor
+    command:
+      - --id=ph_sensor_0
+      - --type=pH
+      - --min=0
+      - --max=14
+      - --interval-ms=2
+      - --endpoint=http://server:8000/measurement
+
+  temp-sensor:
+    build:
+      context: ./sensor
+    command:
+      - id=temp_sensor_0
+      - type=temp
+      - min=-10
+      - max=110
+      - period=4
+      - endpoint=http://server:8000/measurement
+
+  server:
+    build:
+      context: ./server
+    ports:
+      - "8000:8000"

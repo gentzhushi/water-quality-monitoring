@@ -29,9 +29,13 @@ def measurement():
 def config(sid: str):
     return {"config": SENSOR_CFGS[sid]}
 
-@app.get("/dump")
-def dump():
+@app.get("/dump/data")
+def dump_data():
     return {"data": DATA}
+
+@app.get("/dump/configs")
+def dump_cfgs():
+    return {"configs": SENSOR_CFGS}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=80)

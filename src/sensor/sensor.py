@@ -1,7 +1,8 @@
 from    argparse import ArgumentParser, Namespace
 import  asyncio
-import  random
 import  httpx
+import  random
+from    typing import Optional
 
 
 class Sensor:
@@ -10,11 +11,11 @@ class Sensor:
             self,
             id:                 str,
             base_url:           str,
-            min:                float = None,
-            max:                float = None,
-            type:               str   = None,
-            measure_interval_s: int   = None,
-            config_interval_s:  int   = 10
+            min:                Optional[float] = None,
+            max:                Optional[float] = None,
+            type:               Optional[str]   = None,
+            measure_interval_s: Optional[int]   = None,
+            config_interval_s:  int             = 10
             ):
         self.id                 = id
         self.base_url           = base_url.rstrip("/")
@@ -24,12 +25,12 @@ class Sensor:
         self.measure_interval_s = measure_interval_s
         self.config_interval_s  = config_interval_s
 
-    def _get_value(self) -> float:
+    def _get_value(self) -> Optional[float]:
         if self.min == None or self.max == None:
             return None
         return ((self.max - self.min) * random.random()) + self.min
 
-    async def _sleep_with_jitter(self, interval_s: int) -> None:
+    async def _sleep_with_jitter(self, interval_s: Optional[int]) -> None:
         if interval_s == None:
             await asyncio.sleep(5)
         else:
@@ -51,7 +52,7 @@ class Sensor:
     async def _post_measure_loop(self, client: httpx.AsyncClient) -> None:
         while True:
             if self.min == None or self.max == None or self.measure_interval_s == None:
-                self._sleep_with_jitter(self.measure_interval_s)
+                await self._sleep_with_jitter(self.measure_interval_s)
             else:
                 await client.post(
                     f"{self.base_url}/measure",

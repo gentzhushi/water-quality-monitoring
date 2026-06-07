@@ -8,7 +8,7 @@ First off, make sure you have `docker` and `docker compose`.
 1. Clone the repository and `cd` into it:
 ```sh
 git clone git@github.com:gentzhushi/water-quality-monitoring && \
-cd water-quality-monitoring
+cd water-quality-monitoring/src
 ```
 
 2. Build and spin up the containers:

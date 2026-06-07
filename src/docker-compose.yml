@@ -4,25 +4,17 @@ services:
       context: ./sensor
     command:
       - --id=ph_sensor_0
-      - --type=pH
-      - --min=0
-      - --max=14
-      - --interval-ms=2
-      - --endpoint=http://server:8000/measurement
+      - --base-url=http://server
 
   temp-sensor:
     build:
       context: ./sensor
     command:
-      - id=temp_sensor_0
-      - type=temp
-      - min=-10
-      - max=110
-      - period=4
-      - endpoint=http://server:8000/measurement
+      - --id=temp_sensor_0
+      - --base-url=http://server
 
   server:
     build:
       context: ./server
     ports:
-      - "8000:8000"
+      - "8000:80"

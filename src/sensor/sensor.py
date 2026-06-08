@@ -1,8 +1,9 @@
-from    argparse import ArgumentParser, Namespace
-import  asyncio
-import  httpx
-import  random
-from    typing import Optional
+from   argparse import ArgumentParser, Namespace
+import asyncio
+import httpx
+import json
+import random
+from   typing   import Optional
 
 
 class Sensor:
@@ -24,6 +25,7 @@ class Sensor:
         self.type               = type
         self.measure_interval_s = measure_interval_s
         self.config_interval_s  = config_interval_s
+        print(f"Sensor initialized.")
 
     def _get_value(self) -> Optional[float]:
         if self.min == None or self.max == None:
@@ -39,13 +41,16 @@ class Sensor:
 
     async def _get_config_loop(self, client: httpx.AsyncClient) -> None:
         while True:
-            await client.get(
+            response = await client.get(
                 f"{self.base_url}/sensor-config/{self.id}"
             )
 
-            print(f"Got a config!")
-
-            # TODO: Handle configuration
+            payload = json.loads(response.content.decode())["config"]
+            self.min                = payload["min"]
+            self.max                = payload["max"]
+            self.type               = payload["type"]
+            self.measure_interval_s = payload["measure_interval_s"]
+            self.config_interval_s  = payload["config_interval_s"]
 
             await self._sleep_with_jitter(self.config_interval_s)
 
@@ -60,21 +65,18 @@ class Sensor:
                         "sensor_id": self.id,
                         "sensor_type": self.type,
                         "value": self._get_value()
-                        }
-                    )
-                print(f"Posted a measurement!")
-
-            # TODO: handle http response
+                    }
+                )
 
             await self._sleep_with_jitter(self.measure_interval_s)
 
     async def start(self) -> None:
-        print(f"[{self.id}]: Sensor started.")
         async with httpx.AsyncClient(timeout = 5) as client:
             await asyncio.gather(
                 self._post_measure_loop(client),
                 self._get_config_loop(client)
             )
+
 
 def __parse_args__() -> Namespace:
     p = ArgumentParser(
@@ -130,17 +132,11 @@ def __parse_args__() -> Namespace:
 
 
 if __name__ == "__main__":
-
     args = __parse_args__()
 
     sensor = Sensor(
             id=args.id,
             base_url=args.base_url
-            # min=args.min,
-            # max=args.max,
-            # type=args.type,
-            # measure_interval_s=args.measure_interval_s,
-            # config_interval_s=args.config_interval_s,
             )
 
     asyncio.run(sensor.start())

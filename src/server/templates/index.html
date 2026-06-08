@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge Server - Sensor Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+            margin: 0;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #1a202c;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .sensor-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border-left: 5px solid #4ade80; /* Default green accent */
+        }
+        .sensor-card.ph { border-left-color: #3b82f6; } /* Blue for pH */
+        .sensor-card.temp { border-left-color: #ef4444; } /* Red for Temp */
+
+        .sensor-id {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #2d3748;
+            margin: 0 0 10px 0;
+        }
+        .meta-item {
+            font-size: 0.9rem;
+            margin: 6px 0;
+            color: #4a5568;
+        }
+        .meta-label {
+            font-weight: 600;
+            color: #718096;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border-radius: 12px;
+            background-color: #edf2f7;
+            color: #4a5568;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Active Edge Sensors</h1>
+
+        <div class="sensor-grid">
+            {% for sid, config in sensors.items() %}
+            <div class="sensor-card {% if 'ph' in sid.lower() %}ph{% elif 'temp' in sid.lower() %}temp{% endif %}">
+                <div class="sensor-id">{{ sid }}</div>
+ 
+                <div class="meta-item">
+                    <span class="meta-label">Type:</span>
+                    <span class="badge">{{ config.type }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Range:</span> {{ config.min }} - {{ config.max }}
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Measure Interval:</span> {{ config.measure_interval_s }}s
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Sync Interval:</span> {{ config.config_interval_s }}s
+                </div>
+            </div>
+            {% else %}
+            <p>No active sensors found on this edge instance.</p>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

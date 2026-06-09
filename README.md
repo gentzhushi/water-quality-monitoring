@@ -56,10 +56,25 @@ This keeps the demo flow simple:
 Kafka water-quality-readings -> Spark validation/alerts -> Kafka water-quality-alerts
 ```
 
+The Spark consumer keeps the current message schema unchanged. It reads JSON from Kafka, parses the fields, filters out broken messages, prints valid readings to the Spark logs, prints detected alerts to the Spark logs, and writes alerts back to Kafka.
+
 ## Kafka/Spark topics
 
 - `water-quality-readings`: fake readings produced by `mock-producer`
 - `water-quality-alerts`: abnormal readings detected by Spark
+
+Current reading message format:
+
+```json
+{
+  "sensor_id": "mock_sensor_01",
+  "sensor_type": "pH",
+  "value": 8.9,
+  "timestamp": "2026-06-09T21:37:59Z"
+}
+```
+
+Spark treats `sensor_id`, `sensor_type`, `value`, and `timestamp` as required fields.
 
 The mock producer sends both pH and temperature messages every 1-2 seconds. It intentionally includes normal and abnormal values so Spark can create alerts.
 

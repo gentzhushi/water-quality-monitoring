@@ -12,10 +12,10 @@ ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "water-quality-alerts")
 
 schema = StructType(
     [
-        StructField("sensor_id", StringType(), nullable=False),
-        StructField("sensor_type", StringType(), nullable=False),
-        StructField("value", DoubleType(), nullable=False),
-        StructField("timestamp", StringType(), nullable=False),
+        StructField("sensor_id", StringType(), nullable=True),
+        StructField("sensor_type", StringType(), nullable=True),
+        StructField("value", DoubleType(), nullable=True),
+        StructField("timestamp", StringType(), nullable=True),
     ]
 )
 
@@ -40,14 +40,20 @@ raw_readings = (
     .load()
 )
 
-readings = (
+parsed_readings = (
     raw_readings.select(from_json(col("value").cast("string"), schema).alias("reading"))
     .select("reading.*")
-    .where(col("sensor_id").isNotNull())
+)
+
+valid_readings = (
+    parsed_readings.where(col("sensor_id").isNotNull())
+    .where(col("sensor_type").isNotNull())
+    .where(col("value").isNotNull())
+    .where(col("timestamp").isNotNull())
 )
 
 alerts = (
-    readings.withColumn(
+    valid_readings.withColumn(
         "alert_type",
         when((col("sensor_type") == "pH") & (col("value") < 6.5), lit("LOW_PH"))
         .when((col("sensor_type") == "pH") & (col("value") > 8.5), lit("HIGH_PH"))
@@ -95,19 +101,30 @@ alert_output = alerts.select(
     ).alias("value"),
 )
 
-console_query = (
-    alerts.writeStream.outputMode("append")
+valid_readings_query = (
+    valid_readings.writeStream.outputMode("append")
     .format("console")
     .option("truncate", "false")
-    .option("checkpointLocation", "/tmp/water-quality-console-checkpoint")
+    .option("checkpointLocation", "/tmp/water-quality-checkpoints/valid-readings-console")
+    .queryName("valid_readings_console")
     .start()
 )
 
-kafka_query = (
+alerts_console_query = (
+    alerts.writeStream.outputMode("append")
+    .format("console")
+    .option("truncate", "false")
+    .option("checkpointLocation", "/tmp/water-quality-checkpoints/alerts-console")
+    .queryName("alerts_console")
+    .start()
+)
+
+alerts_kafka_query = (
     alert_output.writeStream.format("kafka")
     .option("kafka.bootstrap.servers", BOOTSTRAP_SERVERS)
     .option("topic", ALERTS_TOPIC)
-    .option("checkpointLocation", "/tmp/water-quality-alerts-checkpoint")
+    .option("checkpointLocation", "/tmp/water-quality-checkpoints/alerts-kafka")
+    .queryName("alerts_to_kafka")
     .outputMode("append")
     .start()
 )

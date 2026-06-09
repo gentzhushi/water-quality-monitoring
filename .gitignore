@@ -59,5 +59,3 @@ docker-compose.override.yml
 
 *.tmp
 *.bak
-
-docs

@@ -1,45 +1,82 @@
-from    argparse import ArgumentParser, Namespace
-from    random   import random
-import  requests
-from    time     import sleep
+from   argparse import ArgumentParser, Namespace
+import asyncio
+import httpx
+import json
+import random
+from   typing   import Optional
 
 
 class Sensor:
 
     def __init__(
             self,
-            id:            str,
-            type:          str,
-            min:           float,
-            max:           float,
-            interval_ms:   int,
-            endpoint:      str
+            id:                 str,
+            base_url:           str,
+            min:                Optional[float] = None,
+            max:                Optional[float] = None,
+            type:               Optional[str]   = None,
+            measure_interval_s: Optional[int]   = None,
+            config_interval_s:  int             = 10
             ):
-        self.id          = id
-        self.type        = type
-        self.min         = min
-        self.max         = max
-        self.interval_ms = interval_ms
-        self.endpoint    = endpoint
+        self.id                 = id
+        self.base_url           = base_url.rstrip("/")
+        self.min                = min
+        self.max                = max
+        self.type               = type
+        self.measure_interval_s = measure_interval_s
+        self.config_interval_s  = config_interval_s
+        print(f"Sensor initialized.")
 
-    def _get_value(self) -> float:
-        return ((self.max - self.min) * random()) + self.min
+    def _get_value(self) -> Optional[float]:
+        if self.min == None or self.max == None:
+            return None
+        return ((self.max - self.min) * random.random()) + self.min
 
-    def _tick(self) -> requests.Response:
-        return requests.post(
-            self.endpoint,
-            json={
-                "sensor_id": self.id,
-                "sensor_type": self.type,
-                "value": self._get_value()
-                }
+    async def _sleep_with_jitter(self, interval_s: Optional[int]) -> None:
+        if interval_s == None:
+            await asyncio.sleep(5)
+        else:
+            jitter_s = random.uniform(-0.1, 0.1) * interval_s
+            await asyncio.sleep(max(1, interval_s + jitter_s))
+
+    async def _get_config_loop(self, client: httpx.AsyncClient) -> None:
+        while True:
+            response = await client.get(
+                f"{self.base_url}/sensor-config/{self.id}"
             )
 
-    def start(self) -> None:
-        print(f"[{self.id}]: Sensor started.")
+            payload = json.loads(response.content.decode())["config"]
+            self.min                = payload["min"]
+            self.max                = payload["max"]
+            self.type               = payload["type"]
+            self.measure_interval_s = payload["measure_interval_s"]
+            self.config_interval_s  = payload["config_interval_s"]
+
+            await self._sleep_with_jitter(self.config_interval_s)
+
+    async def _post_measure_loop(self, client: httpx.AsyncClient) -> None:
         while True:
-            self._tick()
-            sleep(self.interval_ms / 1000)
+            if self.min == None or self.max == None or self.measure_interval_s == None:
+                await self._sleep_with_jitter(self.measure_interval_s)
+            else:
+                await client.post(
+                    f"{self.base_url}/measure",
+                    json={
+                        "sensor_id": self.id,
+                        "sensor_type": self.type,
+                        "value": self._get_value()
+                    }
+                )
+
+            await self._sleep_with_jitter(self.measure_interval_s)
+
+    async def start(self) -> None:
+        async with httpx.AsyncClient(timeout = 5) as client:
+            await asyncio.gather(
+                self._post_measure_loop(client),
+                self._get_config_loop(client)
+            )
+
 
 def __parse_args__() -> Namespace:
     p = ArgumentParser(
@@ -56,48 +93,50 @@ def __parse_args__() -> Namespace:
 
     p.add_argument(
             "--type",
-            required=True,
+            required=False,
             choices=["pH", "temperature"]
             )
 
     p.add_argument(
             "--min",
             type=float,
-            required=True
+            required=False
             )
 
     p.add_argument(
             "--max",
             type=float,
-            required=True
+            required=False
             )
 
     p.add_argument(
-            "--interval-ms",
+            "--measure-interval-s",
             type=int,
-            required=True,
-            default=1000
+            required=False,
+            default=None
             )
 
     p.add_argument(
-            "--endpoint",
+            "--config-interval-s",
+            type=int,
+            required=False,
+            default=10
+            )
+
+    p.add_argument(
+            "--base-url",
             required=True
             )
 
     return p.parse_args()
- 
+
 
 if __name__ == "__main__":
-   
     args = __parse_args__()
 
     sensor = Sensor(
             id=args.id,
-            type=args.type,
-            min=args.min,
-            max=args.max,
-            interval_ms=args.interval_ms,
-            endpoint=args.endpoint
+            base_url=args.base_url
             )
 
-    sensor.start()
+    asyncio.run(sensor.start())

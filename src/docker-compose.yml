@@ -2,30 +2,40 @@ services:
   ph-sensor:
     build:
       context: ./sensor
+    environment:
+      - PYTHONUNBUFFERED=1
     command:
       - --id=ph_sensor_0
-      - --type=pH
-      - --min=0
-      - --max=14
-      - --interval-ms=2
-      - --endpoint=http://server:8000/measurement
+      - --base-url=http://edge-server
+    depends_on:
+      edge-server:
+        condition: service_healthy
 
   temp-sensor:
     build:
       context: ./sensor
+    environment:
+      - PYTHONUNBUFFERED=1
     command:
-      - id=temp_sensor_0
-      - type=temp
-      - min=-10
-      - max=110
-      - period=4
-      - endpoint=http://server:8000/measurement
+      - --id=temp_sensor_0
+      - --base-url=http://edge-server
+    depends_on:
+      edge-server:
+        condition: service_healthy
 
-  server:
+  edge-server:
     build:
       context: ./server
+    environment:
+      - PYTHONUNBUFFERED=1
     ports:
-      - "8000:8000"
+      - "8000:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 0s
 
   kafka:
     image: apache/kafka:3.7.0

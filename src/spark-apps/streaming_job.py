@@ -74,7 +74,10 @@ alerts = (
             lit("Temperature value is above allowed threshold"),
         ),
     )
-    .withColumn("processed_at", expr("date_format(current_timestamp(), \"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'\")"))
+    .withColumn(
+        "processed_at",
+        expr("date_format(current_timestamp(), \"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'\")"),
+    )
 )
 
 alert_output = alerts.select(

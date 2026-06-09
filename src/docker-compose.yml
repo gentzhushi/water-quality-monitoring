@@ -85,13 +85,61 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_TOPIC=water-quality-readings
 
-  spark:
-    build:
-      context: ./spark
+  spark-master:
+    image: apache/spark:3.5.5
+    container_name: spark-master
+    hostname: spark-master
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.master.Master
+      --host spark-master
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+      - "4040:4040"
+    volumes:
+      - ./spark-apps:/opt/spark-apps
     depends_on:
-      kafka:
-        condition: service_healthy
+      - kafka
+
+  spark-worker:
+    image: apache/spark:3.5.5
+    container_name: spark-worker
+    hostname: spark-worker
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      --cores 2
+      --memory 2g
+      spark://spark-master:7077
+    ports:
+      - "8082:8081"
+    volumes:
+      - ./spark-apps:/opt/spark-apps
+    depends_on:
+      - spark-master
+
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    hostname: cassandra
+    ports:
+      - "9042:9042"
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - READINGS_TOPIC=water-quality-readings
-      - ALERTS_TOPIC=water-quality-alerts
+      CASSANDRA_CLUSTER_NAME: water-quality-cluster
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_RACK: rack1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: [ "CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' >/dev/null 2>&1" ]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+
+
+
+volumes:
+  cassandra_data:

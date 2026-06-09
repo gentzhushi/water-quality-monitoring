@@ -49,6 +49,9 @@ def post_config(sid: str, payload: SensorConfigPayload):
 
     print(f"requested_id:{sid}, available_ids{SENSOR_CFGS.keys()}")
     if sid not in SENSOR_CFGS:
+        # NOTE: Qitu me implementu qe me shtu qat sensor config,
+        #       cdo sensor kur tdhezet  qon qitu request, e poston prezencen e vet;
+        #       edhe masanej ngon per state update
         raise HTTPException(status_code=404, detail=f"Sensor with ID=\"{sid}\" does not exist.")
 
     update_data = payload.model_dump(exclude_unset=True)

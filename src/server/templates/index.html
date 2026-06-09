@@ -65,32 +65,251 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Active Edge Sensors</h1>
+<div class="container">
+    <h1>Active Edge Sensors</h1>
 
-        <div class="sensor-grid">
-            {% for sid, config in sensors.items() %}
-            <div class="sensor-card {% if 'ph' in sid.lower() %}ph{% elif 'temp' in sid.lower() %}temp{% endif %}">
-                <div class="sensor-id">{{ sid }}</div>
- 
-                <div class="meta-item">
-                    <span class="meta-label">Type:</span>
-                    <span class="badge">{{ config.type }}</span>
+    <div class="sensor-grid">
+        {% for sid, config in sensors.items() %}
+        <div class="sensor-card {% if 'ph' in sid.lower() %}ph{% elif 'temp' in sid.lower() %}temp{% endif %}">
+            <div class="sensor-id">{{ sid }}</div>
+
+            <div class="meta-item">
+                <span class="meta-label">Type:</span>
+                <span class="badge">{{ config.type }}</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Range:</span> {{ config.min }} - {{ config.max }}
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Measure Interval:</span> {{ config.measure_interval_s }}s
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Sync Interval:</span> {{ config.config_interval_s }}s
+            </div>
+
+            <button class="configure-btn"
+                onclick="openModal(
+                    '{{ sid }}',
+                    '{{ config.type }}',
+                    '{{ config.min }}',
+                    '{{ config.max }}',
+                    '{{ config.measure_interval_s }}',
+                    '{{ config.config_interval_s }}'
+                )">
+                Configure
+            </button>
+        </div>
+        {% else %}
+        <p>No active sensors found on this edge instance.</p>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Modal overlay -->
+<div id="sensor-modal" class="modal-overlay" onclick="closeOnOverlay(event)">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="modal-title">Configure sensor</h2>
+            <button class="modal-close" onclick="closeModal()" aria-label="Close">&times;</button>
+        </div>
+
+        <form id="sensor-form">
+            <input type="hidden" name="sensor_id" id="field-id">
+
+            <div class="form-group">
+                <label for="field-type">Type</label>
+                <input type="text" id="field-type" name="type">
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="field-min">Min</label>
+                    <input type="number" id="field-min" name="min" step="any">
                 </div>
-                <div class="meta-item">
-                    <span class="meta-label">Range:</span> {{ config.min }} - {{ config.max }}
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">Measure Interval:</span> {{ config.measure_interval_s }}s
-                </div>
-                <div class="meta-item">
-                    <span class="meta-label">Sync Interval:</span> {{ config.config_interval_s }}s
+                <div class="form-group">
+                    <label for="field-max">Max</label>
+                    <input type="number" id="field-max" name="max" step="any">
                 </div>
             </div>
-            {% else %}
-            <p>No active sensors found on this edge instance.</p>
-            {% endfor %}
-        </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="field-measure">Measure interval (s)</label>
+                    <input type="number" id="field-measure" name="measure_interval_s" min="1">
+                </div>
+                <div class="form-group">
+                    <label for="field-sync">Sync interval (s)</label>
+                    <input type="number" id="field-sync" name="config_interval_s" min="1">
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn-primary">Save changes</button>
+            </div>
+        </form>
     </div>
+</div>
+
+<style>
+    .configure-btn {
+        margin-top: 12px;
+        width: 100%;
+        padding: 6px 12px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 100;
+        align-items: center;
+        justify-content: center;
+    }
+    .modal-overlay.open {
+        display: flex;
+    }
+
+    .modal {
+        background: #fff;
+        border-radius: 10px;
+        padding: 24px;
+        width: 100%;
+        max-width: 420px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+    }
+
+    .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+    }
+    .modal-header h2 {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0;
+    }
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 20px;
+        cursor: pointer;
+        color: #888;
+        line-height: 1;
+        padding: 0;
+    }
+
+    .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex: 1;
+    }
+    .form-group label {
+        font-size: 12px;
+        font-weight: 500;
+        color: #555;
+    }
+    .form-group input {
+        padding: 7px 10px;
+        font-size: 14px;
+        border: 1px solid #d0cfc8;
+        border-radius: 6px;
+        outline: none;
+        width: 100%;
+    }
+    .form-group input:focus {
+        border-color: #888;
+    }
+    .form-row {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .form-group {
+        margin-bottom: 14px;
+    }
+
+    .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 8px;
+    }
+    .btn-primary, .btn-secondary {
+        padding: 8px 16px;
+        font-size: 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        border: 1px solid #d0cfc8;
+    }
+    .btn-primary {
+        background: #2c2c2a;
+        color: #fff;
+        border-color: #2c2c2a;
+    }
+    .btn-secondary {
+        background: #fff;
+        color: #333;
+    }
+</style>
+
+<script>
+    function openModal(sid, type, min, max, measure, sync) {
+        document.getElementById('modal-title').textContent   = 'Configure — ' + sid;
+        document.getElementById('field-id').value           = sid;
+        document.getElementById('field-type').value         = type;
+        document.getElementById('field-min').value          = min;
+        document.getElementById('field-max').value          = max;
+        document.getElementById('field-measure').value      = measure;
+        document.getElementById('field-sync').value         = sync;
+
+
+
+        document.getElementById('sensor-modal').classList.add('open');
+    }
+
+    function closeModal() {
+        document.getElementById('sensor-modal').classList.remove('open');
+    }
+
+    function closeOnOverlay(e) {
+        if (e.target === document.getElementById('sensor-modal')) closeModal();
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeModal();
+    });
+
+    document.getElementById('sensor-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const sid = document.getElementById('field-id').value;
+
+        const payload = {
+            type:               document.getElementById('field-type').value    || null,
+            min:                parseFloat(document.getElementById('field-min').value),
+            max:                parseFloat(document.getElementById('field-max').value),
+            measure_interval_s: parseInt(document.getElementById('field-measure').value),
+            config_interval_s:  parseInt(document.getElementById('field-sync').value),
+        };
+
+        const res = await fetch(`/sensor-config/${encodeURIComponent(sid)}`, {
+            method:  'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+            closeModal();
+        } else {
+            const err = await res.json();
+            alert(`Error: ${err.detail ?? 'unknown error'}`);
+        }
+    });
+</script>
 </body>
 </html>

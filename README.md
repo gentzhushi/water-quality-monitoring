@@ -20,10 +20,15 @@ docker compose up -d --build
 This starts the existing Flask/sensor services, Kafka, Cassandra, and a small Spark standalone cluster:
 
 ```text
-mock-producer -> Kafka topic water-quality-readings -> Spark master/worker cluster
+mock-producer -> Kafka topic water-quality-readings -> Spark master/worker cluster -> Cassandra
 ```
 
 The Spark streaming app is submitted manually after the cluster is running.
+
+3. Create the Cassandra schema from the `src` directory:
+```powershell
+Get-Content .\cassandra\migrations\001_create_water_quality_schema.cql | docker exec -i cassandra cqlsh
+```
 
 ## Services
 
@@ -41,22 +46,25 @@ The Spark Application UI on port `4040` appears only while the streaming job is 
 
 From the `src` directory, run:
 
-```sh
-docker exec -it spark-master /opt/spark/bin/spark-submit \
-  --master spark://spark-master:7077 \
-  --conf spark.ui.port=4040 \
-  --conf spark.jars.ivy=/tmp/spark-ivy \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5 \
+```powershell
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+  --master spark://spark-master:7077 `
+  --conf spark.ui.port=4040 `
+  --conf spark.jars.ivy=/tmp/spark-ivy `
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,com.datastax.spark:spark-cassandra-connector_2.12:3.5.1 `
+  --conf spark.cassandra.connection.host=cassandra `
+  --conf spark.cassandra.connection.port=9042 `
   /opt/spark-apps/streaming_job.py
 ```
 
 This keeps the demo flow simple:
 
 ```text
-Kafka water-quality-readings -> Spark validation/alerts -> Kafka water-quality-alerts
+Kafka water-quality-readings -> Spark validation/enrichment/aggregation -> Cassandra
+Kafka water-quality-readings -> Spark alert detection -> Kafka water-quality-alerts
 ```
 
-The Spark consumer keeps the current message schema unchanged. It reads JSON from Kafka, parses the fields, filters out broken messages, prints valid readings to the Spark logs, prints detected alerts to the Spark logs, and writes alerts back to Kafka.
+The Spark consumer keeps the current message schema unchanged. It reads JSON from Kafka, parses the fields, filters out broken messages, enriches valid readings with Cassandra sensor metadata, writes dashboard-ready readings and aggregates to Cassandra, prints useful live output to the Spark logs, and writes alerts back to Kafka.
 
 ## Kafka/Spark topics
 
@@ -96,7 +104,7 @@ To manually test Spark, use Kafka UI to produce this message to `water-quality-r
 
 ```json
 {
-  "sensor_id": "manual_test_01",
+  "sensor_id": "mock_sensor_01",
   "sensor_type": "pH",
   "value": 9.2,
   "timestamp": "2026-06-07T12:00:00Z"
@@ -109,7 +117,7 @@ Another manual test:
 
 ```json
 {
-  "sensor_id": "manual_test_02",
+  "sensor_id": "mock_sensor_02",
   "sensor_type": "temperature",
   "value": 42,
   "timestamp": "2026-06-07T12:00:00Z"

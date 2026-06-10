@@ -14,26 +14,67 @@ cd water-quality-monitoring/src
 2. Start the services from the `src` directory:
 ```sh
 cd src
-docker compose up --build
+docker compose up -d --build
 ```
 
-This starts the existing Flask/sensor services plus an independent Kafka/Spark test pipeline:
+This starts the existing Flask/sensor services, Kafka, Cassandra, and a small Spark standalone cluster:
 
 ```text
-mock-producer -> Kafka topic water-quality-readings -> Spark -> Kafka topic water-quality-alerts -> Kafka UI
+mock-producer -> Kafka topic water-quality-readings -> Spark master/worker cluster
 ```
+
+The Spark streaming app is submitted manually after the cluster is running.
 
 ## Services
 
 - Flask server: http://localhost:8000
 - Kafka UI: http://localhost:8080
+- Spark Master UI: http://localhost:8081
+- Spark Worker UI: http://localhost:8082
+- Spark Application UI: http://localhost:4040
 - Kafka broker inside Docker: `kafka:9092`
 - Kafka broker from the host, if needed: `localhost:9094`
+
+The Spark Application UI on port `4040` appears only while the streaming job is running.
+
+## Submit the Spark streaming job
+
+From the `src` directory, run:
+
+```sh
+docker exec -it spark-master /opt/spark/bin/spark-submit \
+  --master spark://spark-master:7077 \
+  --conf spark.ui.port=4040 \
+  --conf spark.jars.ivy=/tmp/spark-ivy \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5 \
+  /opt/spark-apps/streaming_job.py
+```
+
+This keeps the demo flow simple:
+
+```text
+Kafka water-quality-readings -> Spark validation/alerts -> Kafka water-quality-alerts
+```
+
+The Spark consumer keeps the current message schema unchanged. It reads JSON from Kafka, parses the fields, filters out broken messages, prints valid readings to the Spark logs, prints detected alerts to the Spark logs, and writes alerts back to Kafka.
 
 ## Kafka/Spark topics
 
 - `water-quality-readings`: fake readings produced by `mock-producer`
 - `water-quality-alerts`: abnormal readings detected by Spark
+
+Current reading message format:
+
+```json
+{
+  "sensor_id": "mock_sensor_01",
+  "sensor_type": "pH",
+  "value": 8.9,
+  "timestamp": "2026-06-09T21:37:59Z"
+}
+```
+
+Spark treats `sensor_id`, `sensor_type`, `value`, and `timestamp` as required fields.
 
 The mock producer sends both pH and temperature messages every 1-2 seconds. It intentionally includes normal and abnormal values so Spark can create alerts.
 
@@ -83,7 +124,8 @@ From `src`:
 
 ```sh
 docker compose logs -f mock-producer
-docker compose logs -f spark
+docker compose logs -f spark-master
+docker compose logs -f spark-worker
 docker compose logs -f kafka
 ```
 

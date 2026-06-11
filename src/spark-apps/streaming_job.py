@@ -25,6 +25,7 @@ from pyspark.sql.types import DoubleType, StringType, StructField, StructType
 from pyspark.sql.window import Window
 
 
+# Configuration
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 READINGS_TOPIC = os.getenv("READINGS_TOPIC", "water-quality-readings")
 ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "water-quality-alerts")
@@ -33,6 +34,7 @@ CASSANDRA_PORT = os.getenv("CASSANDRA_PORT", "9042")
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
 
 
+# Kafka message schema
 schema = StructType(
     [
         StructField("sensor_id", StringType(), nullable=True),
@@ -43,6 +45,7 @@ schema = StructType(
 )
 
 
+# Spark session
 spark = (
     SparkSession.builder.appName("WaterQualityProcessingStreaming")
     .config("spark.sql.shuffle.partitions", "2")
@@ -59,6 +62,7 @@ print(
 )
 
 
+# Cassandra write helpers
 def write_to_cassandra(dataframe, table_name):
     dataframe.write.format("org.apache.spark.sql.cassandra").mode("append").options(
         keyspace=CASSANDRA_KEYSPACE,
@@ -176,6 +180,7 @@ def write_daily_aggregates(batch_df, batch_id):
     )
 
 
+# Sensor metadata used to enrich incoming readings
 sensor_metadata = (
     spark.read.format("org.apache.spark.sql.cassandra")
     .options(keyspace=CASSANDRA_KEYSPACE, table="sensors_by_id")
@@ -188,6 +193,7 @@ sensor_metadata = (
     )
 )
 
+# Read JSON readings from Kafka
 raw_readings = (
     spark.readStream.format("kafka")
     .option("kafka.bootstrap.servers", BOOTSTRAP_SERVERS)
@@ -196,6 +202,7 @@ raw_readings = (
     .load()
 )
 
+# Parse and validate readings
 parsed_readings = (
     raw_readings.select(from_json(col("value").cast("string"), schema).alias("reading"))
     .select("reading.*")
@@ -219,6 +226,7 @@ valid_readings = (
     .where(col("event_time").isNotNull())
 )
 
+# Enrich valid readings and prepare Cassandra columns
 processed_readings = (
     valid_readings.join(
         sensor_metadata,
@@ -261,6 +269,7 @@ processed_readings = (
     )
 )
 
+# Detect abnormal readings and send alerts back to Kafka
 alerts = (
     valid_readings.withColumn(
         "alert_type",
@@ -310,6 +319,7 @@ alert_output = alerts.select(
     ).alias("value"),
 )
 
+# Build hourly and daily aggregates for dashboard trends
 processed_readings_for_aggregates = processed_readings.withWatermark(
     "event_time",
     "10 minutes",
@@ -379,6 +389,7 @@ daily_aggregates = (
     )
 )
 
+# Start streaming outputs
 valid_readings_query = (
     valid_readings.writeStream.outputMode("append")
     .format("console")

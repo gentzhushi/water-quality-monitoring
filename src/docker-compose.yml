@@ -89,18 +89,24 @@ services:
     image: apache/spark:3.5.5
     container_name: spark-master
     hostname: spark-master
+    user: root
     command: >
-      /opt/spark/bin/spark-class
-      org.apache.spark.deploy.master.Master
-      --host spark-master
+      /bin/bash
+      /opt/spark-apps/start-master-and-streaming-job.sh
     ports:
       - "7077:7077"
       - "8081:8080"
       - "4040:4040"
     volumes:
       - ./spark-apps:/opt/spark-apps
+      - spark_checkpoints:/tmp/water-quality-checkpoints
+      - spark_ivy:/tmp/spark-ivy
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    restart: unless-stopped
 
   spark-worker:
     image: apache/spark:3.5.5
@@ -123,6 +129,9 @@ services:
     image: cassandra:4.1
     container_name: cassandra
     hostname: cassandra
+    command: >
+      /bin/bash
+      /opt/cassandra-setup/start-cassandra-with-schema.sh
     ports:
       - "9042:9042"
     environment:
@@ -132,8 +141,9 @@ services:
       CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
     volumes:
       - cassandra_data:/var/lib/cassandra
+      - ./cassandra:/opt/cassandra-setup:ro
     healthcheck:
-      test: [ "CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' >/dev/null 2>&1" ]
+      test: [ "CMD-SHELL", "/opt/cassandra/bin/cqlsh 127.0.0.1 9042 -e 'DESCRIBE TABLE water_quality.readings_daily_by_location_parameter' >/dev/null 2>&1" ]
       interval: 20s
       timeout: 10s
       retries: 15
@@ -143,3 +153,5 @@ services:
 
 volumes:
   cassandra_data:
+  spark_checkpoints:
+  spark_ivy:

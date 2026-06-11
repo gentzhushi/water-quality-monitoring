@@ -154,7 +154,7 @@ INSERT INTO sensors_by_id (
     'active',
     toTimestamp(now()),
     toTimestamp(now())
-);
+) IF NOT EXISTS;
 
 INSERT INTO sensors_by_id (
     sensor_id,
@@ -176,7 +176,7 @@ INSERT INTO sensors_by_id (
     'active',
     toTimestamp(now()),
     toTimestamp(now())
-);
+) IF NOT EXISTS;
 
 INSERT INTO sensors_by_location (
     location_id,
@@ -196,7 +196,7 @@ INSERT INTO sensors_by_location (
     'pH',
     'active',
     toTimestamp(now())
-);
+) IF NOT EXISTS;
 
 INSERT INTO sensors_by_location (
     location_id,
@@ -216,4 +216,4 @@ INSERT INTO sensors_by_location (
     'C',
     'active',
     toTimestamp(now())
-);
+) IF NOT EXISTS;

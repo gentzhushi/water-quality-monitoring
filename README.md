@@ -23,12 +23,7 @@ This starts the existing Flask/sensor services, Kafka, Cassandra, and a small Sp
 mock-producer -> Kafka topic water-quality-readings -> Spark master/worker cluster -> Cassandra
 ```
 
-The Spark streaming app is submitted manually after the cluster is running.
-
-3. Create the Cassandra schema from the `src` directory:
-```powershell
-Get-Content .\cassandra\migrations\001_create_water_quality_schema.cql | docker exec -i cassandra cqlsh
-```
+The Cassandra schema and Spark streaming job start automatically. No manual `cqlsh` or `spark-submit` command is needed for the normal demo.
 
 ## Services
 
@@ -42,9 +37,20 @@ Get-Content .\cassandra\migrations\001_create_water_quality_schema.cql | docker 
 
 The Spark Application UI on port `4040` appears only while the streaming job is running.
 
-## Submit the Spark streaming job
+## Spark streaming job
 
-From the `src` directory, run:
+The Spark streaming job is submitted automatically by the `spark-master` container after Kafka and Cassandra are ready.
+
+This keeps the demo flow simple:
+
+```text
+Kafka water-quality-readings -> Spark validation/enrichment/aggregation -> Cassandra
+Kafka water-quality-readings -> Spark alert detection -> Kafka water-quality-alerts
+```
+
+The Spark consumer keeps the current message schema unchanged. It reads JSON from Kafka, parses the fields, filters out broken messages, enriches valid readings with Cassandra sensor metadata, writes dashboard-ready readings and aggregates to Cassandra, prints useful live output to the Spark logs, and writes alerts back to Kafka.
+
+For troubleshooting only, the automatic submit command is:
 
 ```powershell
 docker exec -it spark-master /opt/spark/bin/spark-submit `
@@ -56,15 +62,6 @@ docker exec -it spark-master /opt/spark/bin/spark-submit `
   --conf spark.cassandra.connection.port=9042 `
   /opt/spark-apps/streaming_job.py
 ```
-
-This keeps the demo flow simple:
-
-```text
-Kafka water-quality-readings -> Spark validation/enrichment/aggregation -> Cassandra
-Kafka water-quality-readings -> Spark alert detection -> Kafka water-quality-alerts
-```
-
-The Spark consumer keeps the current message schema unchanged. It reads JSON from Kafka, parses the fields, filters out broken messages, enriches valid readings with Cassandra sensor metadata, writes dashboard-ready readings and aggregates to Cassandra, prints useful live output to the Spark logs, and writes alerts back to Kafka.
 
 ## Kafka/Spark topics
 
@@ -132,6 +129,7 @@ From `src`:
 
 ```sh
 docker compose logs -f mock-producer
+docker compose logs -f cassandra
 docker compose logs -f spark-master
 docker compose logs -f spark-worker
 docker compose logs -f kafka

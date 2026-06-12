@@ -27,6 +27,23 @@ stop_processes() {
 
 trap stop_processes INT TERM
 
+wait_for_service() {
+    service_name="$1"
+    host="$2"
+    port="$3"
+
+    echo "Waiting for ${service_name} at ${host}:${port}..."
+
+    until bash -c "echo > /dev/tcp/${host}/${port}" >/dev/null 2>&1; do
+        if ! kill -0 "$master_pid" 2>/dev/null; then
+            wait "$master_pid"
+            exit $?
+        fi
+
+        sleep 5
+    done
+}
+
 /opt/spark/bin/spark-class \
     org.apache.spark.deploy.master.Master \
     --host spark-master &
@@ -34,6 +51,9 @@ master_pid="$!"
 
 echo "Waiting ${STARTUP_WAIT_SECONDS}s before submitting the streaming job..."
 sleep "$STARTUP_WAIT_SECONDS"
+
+wait_for_service "Kafka" "kafka" "9092"
+wait_for_service "Cassandra" "cassandra" "9042"
 
 if ! kill -0 "$master_pid" 2>/dev/null; then
     wait "$master_pid"

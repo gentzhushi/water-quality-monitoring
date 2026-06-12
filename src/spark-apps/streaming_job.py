@@ -32,10 +32,16 @@ ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "water-quality-alerts")
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = os.getenv("CASSANDRA_PORT", "9042")
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
+CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v2"
+
+PH_LOW_LIMIT = 6.5
+PH_HIGH_LIMIT = 8.5
+TEMPERATURE_LOW_LIMIT = 0.0
+TEMPERATURE_HIGH_LIMIT = 35.0
 
 
 # Kafka message schema
-schema = StructType(
+reading_schema = StructType(
     [
         StructField("sensor_id", StringType(), nullable=True),
         StructField("sensor_type", StringType(), nullable=True),
@@ -70,12 +76,12 @@ def write_to_cassandra(dataframe, table_name):
     ).save()
 
 
-def has_rows(dataframe):
+def batch_has_rows(dataframe):
     return len(dataframe.take(1)) > 0
 
 
-def write_processed_readings(batch_df, batch_id):
-    if not has_rows(batch_df):
+def write_processed_readings(batch_df, _batch_id):
+    if not batch_has_rows(batch_df):
         return
 
     batch_df.cache()
@@ -110,14 +116,14 @@ def write_processed_readings(batch_df, batch_id):
             "readings_by_location_parameter_day",
         )
 
-        latest_window = Window.partitionBy(
+        latest_reading_window = Window.partitionBy(
             "location_id",
             "parameter",
             "sensor_id",
         ).orderBy(col("event_time").desc())
 
         latest_readings = (
-            batch_df.withColumn("row_number", row_number().over(latest_window))
+            batch_df.withColumn("row_number", row_number().over(latest_reading_window))
             .where(col("row_number") == 1)
             .select(
                 "location_id",
@@ -136,8 +142,8 @@ def write_processed_readings(batch_df, batch_id):
         batch_df.unpersist()
 
 
-def write_hourly_aggregates(batch_df, batch_id):
-    if not has_rows(batch_df):
+def write_hourly_aggregates(batch_df, _batch_id):
+    if not batch_has_rows(batch_df):
         return
 
     write_to_cassandra(
@@ -158,8 +164,8 @@ def write_hourly_aggregates(batch_df, batch_id):
     )
 
 
-def write_daily_aggregates(batch_df, batch_id):
-    if not has_rows(batch_df):
+def write_daily_aggregates(batch_df, _batch_id):
+    if not batch_has_rows(batch_df):
         return
 
     write_to_cassandra(
@@ -186,7 +192,7 @@ sensor_metadata = (
     .options(keyspace=CASSANDRA_KEYSPACE, table="sensors_by_id")
     .load()
     .select(
-        col("sensor_id").alias("metadata_sensor_id"),
+        "sensor_id",
         "location_id",
         "parameter",
         "unit",
@@ -204,7 +210,9 @@ raw_readings = (
 
 # Parse and validate readings
 parsed_readings = (
-    raw_readings.select(from_json(col("value").cast("string"), schema).alias("reading"))
+    raw_readings.select(
+        from_json(col("value").cast("string"), reading_schema).alias("reading")
+    )
     .select("reading.*")
 )
 
@@ -226,13 +234,24 @@ valid_readings = (
     .where(col("event_time").isNotNull())
 )
 
+low_ph_reading = (col("sensor_type") == "pH") & (col("value") < PH_LOW_LIMIT)
+high_ph_reading = (col("sensor_type") == "pH") & (col("value") > PH_HIGH_LIMIT)
+low_temperature_reading = (col("sensor_type") == "temperature") & (
+    col("value") < TEMPERATURE_LOW_LIMIT
+)
+high_temperature_reading = (col("sensor_type") == "temperature") & (
+    col("value") > TEMPERATURE_HIGH_LIMIT
+)
+abnormal_reading = (
+    low_ph_reading
+    | high_ph_reading
+    | low_temperature_reading
+    | high_temperature_reading
+)
+
 # Enrich valid readings and prepare Cassandra columns
 processed_readings = (
-    valid_readings.join(
-        sensor_metadata,
-        valid_readings.sensor_id == sensor_metadata.metadata_sensor_id,
-        "inner",
-    )
+    valid_readings.join(sensor_metadata, "sensor_id", "inner")
     .withColumn("parameter", coalesce(col("parameter"), col("sensor_type")))
     .where(col("location_id").isNotNull())
     .where(col("parameter").isNotNull())
@@ -242,20 +261,10 @@ processed_readings = (
     .withColumn("ingestion_time", current_timestamp())
     .withColumn(
         "quality_status",
-        when((col("sensor_type") == "pH") & (col("value") < 6.5), lit("alert"))
-        .when((col("sensor_type") == "pH") & (col("value") > 8.5), lit("alert"))
-        .when(
-            (col("sensor_type") == "temperature") & (col("value") < 0),
-            lit("alert"),
-        )
-        .when(
-            (col("sensor_type") == "temperature") & (col("value") > 35),
-            lit("alert"),
-        )
-        .otherwise(lit("normal")),
+        when(abnormal_reading, lit("alert")).otherwise(lit("normal")),
     )
     .select(
-        valid_readings.sensor_id,
+        "sensor_id",
         "event_time",
         "location_id",
         "parameter",
@@ -273,16 +282,10 @@ processed_readings = (
 alerts = (
     valid_readings.withColumn(
         "alert_type",
-        when((col("sensor_type") == "pH") & (col("value") < 6.5), lit("LOW_PH"))
-        .when((col("sensor_type") == "pH") & (col("value") > 8.5), lit("HIGH_PH"))
-        .when(
-            (col("sensor_type") == "temperature") & (col("value") < 0),
-            lit("LOW_TEMPERATURE"),
-        )
-        .when(
-            (col("sensor_type") == "temperature") & (col("value") > 35),
-            lit("HIGH_TEMPERATURE"),
-        ),
+        when(low_ph_reading, lit("LOW_PH"))
+        .when(high_ph_reading, lit("HIGH_PH"))
+        .when(low_temperature_reading, lit("LOW_TEMPERATURE"))
+        .when(high_temperature_reading, lit("HIGH_TEMPERATURE")),
     )
     .where(col("alert_type").isNotNull())
     .withColumn(
@@ -394,7 +397,7 @@ valid_readings_query = (
     valid_readings.writeStream.outputMode("append")
     .format("console")
     .option("truncate", "false")
-    .option("checkpointLocation", "/tmp/water-quality-checkpoints/v2/valid-readings-console")
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/valid-readings-console")
     .queryName("valid_readings_console")
     .start()
 )
@@ -402,7 +405,7 @@ valid_readings_query = (
 processed_readings_query = (
     processed_readings.writeStream.outputMode("append")
     .foreachBatch(write_processed_readings)
-    .option("checkpointLocation", "/tmp/water-quality-checkpoints/v2/processed-cassandra")
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/processed-cassandra")
     .queryName("processed_readings_to_cassandra")
     .start()
 )
@@ -411,7 +414,7 @@ alerts_console_query = (
     alerts.writeStream.outputMode("append")
     .format("console")
     .option("truncate", "false")
-    .option("checkpointLocation", "/tmp/water-quality-checkpoints/v2/alerts-console")
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/alerts-console")
     .queryName("alerts_console")
     .start()
 )
@@ -420,7 +423,7 @@ alerts_kafka_query = (
     alert_output.writeStream.format("kafka")
     .option("kafka.bootstrap.servers", BOOTSTRAP_SERVERS)
     .option("topic", ALERTS_TOPIC)
-    .option("checkpointLocation", "/tmp/water-quality-checkpoints/v2/alerts-kafka")
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/alerts-kafka")
     .queryName("alerts_to_kafka")
     .outputMode("append")
     .start()
@@ -429,7 +432,7 @@ alerts_kafka_query = (
 hourly_aggregates_query = (
     hourly_aggregates.writeStream.outputMode("update")
     .foreachBatch(write_hourly_aggregates)
-    .option("checkpointLocation", "/tmp/water-quality-checkpoints/v2/hourly-aggregates-cassandra")
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/hourly-aggregates-cassandra")
     .queryName("hourly_aggregates_to_cassandra")
     .start()
 )
@@ -437,7 +440,7 @@ hourly_aggregates_query = (
 daily_aggregates_query = (
     daily_aggregates.writeStream.outputMode("update")
     .foreachBatch(write_daily_aggregates)
-    .option("checkpointLocation", "/tmp/water-quality-checkpoints/v2/daily-aggregates-cassandra")
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/daily-aggregates-cassandra")
     .queryName("daily_aggregates_to_cassandra")
     .start()
 )

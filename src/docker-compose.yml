@@ -1,29 +1,18 @@
 services:
-  ph-sensor:
+  sensor-cluster:
     build:
-      context: ./sensor
+      context: ./sensor-cluster/
     environment:
       - PYTHONUNBUFFERED=1
     command:
-      - --id=ph_sensor_0
-      - --base-url=http://edge-server
+      - --cluster-id=C1
+      - --base-url=http://server
+      - --config-interval-s=5
     depends_on:
-      edge-server:
+      server:
         condition: service_healthy
 
-  temp-sensor:
-    build:
-      context: ./sensor
-    environment:
-      - PYTHONUNBUFFERED=1
-    command:
-      - --id=temp_sensor_0
-      - --base-url=http://edge-server
-    depends_on:
-      edge-server:
-        condition: service_healthy
-
-  edge-server:
+  server:
     build:
       context: ./server
     environment:

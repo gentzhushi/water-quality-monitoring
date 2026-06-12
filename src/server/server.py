@@ -14,64 +14,93 @@ class SensorConfigPayload(BaseModel):
     min:                float | None = None
     max:                float | None = None
     type:               str   | None = None
+    unit:               str   | None = None
     measure_interval_s: int   | None = None
     config_interval_s:  int   | None = 10
 
 
-DATA: List[Dict[str, str]] = []
+class MeasurementPayload(BaseModel):
+    sensor_id:   str
+    sensor_type: str
+    value:       float
 
 
-SENSOR_CFGS: Dict[str, SensorConfigPayload]= {
-    "temp_sensor_0": SensorConfigPayload(
+DATA: List[Dict[str, Any]] = []
+
+
+SENSOR_CONFIGS: dict[str, dict[str, SensorConfigPayload]] = {
+    "C1": {
+        "S001": SensorConfigPayload(
         min                = 1,
         max                = 100,
         type               = "temperature",
+        unit               = "°C",
         measure_interval_s = 4
-    ),
-
-    "ph_sensor_0": SensorConfigPayload(
+        ),
+        "S002": SensorConfigPayload(
         min                = 1,
         max                = 14,
         type               = "pH",
+        unit               = "pH units",
         measure_interval_s = 2
-    )
+        )
+    }
 }
 
 
-@app.post("/measure")
-async def post_measurement(payload: dict[str, Any]):
-    DATA.append(payload)
+@app.post("/sensor-measurement")
+async def post_measurement(payload: MeasurementPayload):
+    DATA.append(payload.model_dump())
     return {"status": "ok"}
 
 
-@app.patch("/sensor-config/{sid}")
-def post_config(sid: str, payload: SensorConfigPayload):
+@app.get("/sensors-by-cluster/{cluster_id}")
+def get_sensors(cluster_id: str):
+    return [
+        {
+            "sensor_id": sid,
+            **cfg.model_dump()
+        }
+        for sid, cfg in SENSOR_CONFIGS[cluster_id].items()
+    ]
 
-    print(f"requested_id:{sid}, available_ids{SENSOR_CFGS.keys()}")
-    if sid not in SENSOR_CFGS:
-        # NOTE: Qitu me implementu qe me shtu qat sensor config,
-        #       cdo sensor kur tdhezet  qon qitu request, e poston prezencen e vet;
-        #       edhe masanej ngon per state update
-        raise HTTPException(status_code=404, detail=f"Sensor with ID=\"{sid}\" does not exist.")
+
+@app.put("/sensors-by-id/{sid}")
+def put_config(sid: str, payload: SensorConfigPayload):
+
+    print(f"requested_id:{sid}, available_clusters:{SENSOR_CONFIGS.keys()}")
+
+    s = sid
+    cid = f"C{s[1 : s.index("S")]}"
+    sid = f"S{s[s.index("S")+1 : ]}"
+
+    print(f"CID: {cid}, SID: {sid}")
+
+    if cid not in SENSOR_CONFIGS:
+        SENSOR_CONFIGS[cid] = {}
+
+    if sid not in SENSOR_CONFIGS[cid]:
+        SENSOR_CONFIGS[cid][sid] = payload
+        return {"status": "ok"}
 
     update_data = payload.model_dump(exclude_unset=True)
-
-    SENSOR_CFGS[sid] = SENSOR_CFGS[sid].model_copy(update=update_data)
-
+    SENSOR_CONFIGS[cid][sid] = SENSOR_CONFIGS[cid][sid].model_copy(update=update_data)
     return {"status": "ok"}
+
+
+@app.get("/sensors-by-id/{sid}")
+def get_config(sid: str):
+    return {"config": SENSOR_CONFIGS[sid]}
+
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def get_dashboard(request: Request):
     context_data = {
         "request": request,
-        "sensors": SENSOR_CFGS
+        "sensors": SENSOR_CONFIGS
     }
 
     return templates.TemplateResponse(request, "index.html", context_data)
-
-@app.get("/sensor-config/{sid}")
-def get_config(sid: str):
-    return {"config": SENSOR_CFGS[sid]}
 
 
 @app.get("/dump/data")
@@ -79,9 +108,9 @@ def dump_data():
     return {"data": DATA}
 
 
-@app.get("/dump/configs")
+@app.get("/dump/sensor-configs")
 def dump_cfgs():
-    return {"configs": SENSOR_CFGS}
+    return {"configs": SENSOR_CONFIGS}
 
 
 @app.get("/healthcheck")

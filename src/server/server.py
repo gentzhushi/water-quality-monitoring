@@ -65,6 +65,7 @@ def get_sensors(cluster_id: str):
     ]
 
 
+# Qikjo osht teknikisht patch prap, veq duhet me rishiku
 @app.put("/sensors-by-id/{sid}")
 def put_config(sid: str, payload: SensorConfigPayload):
 
@@ -77,7 +78,7 @@ def put_config(sid: str, payload: SensorConfigPayload):
     print(f"CID: {cid}, SID: {sid}")
 
     if cid not in SENSOR_CONFIGS:
-        SENSOR_CONFIGS[cid] = {}
+        return {"status": 400, "description": "Cluster doesn't exist."}
 
     if sid not in SENSOR_CONFIGS[cid]:
         SENSOR_CONFIGS[cid][sid] = payload

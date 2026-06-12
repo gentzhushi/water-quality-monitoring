@@ -47,12 +47,12 @@ class SensorCluster:
     def __init__(
             self,
             base_url:          str,
-            cluster_id:        int,
+            cluster_id:        str,
             config_interval_s: int
             ):
         self.sensors: dict[int, Sensor | None] = {}
         self.base_url                          = base_url.rstrip("/")
-        self.cluster_id                        = cluster_id
+        self.cluster_id                        = self._normalize_cluster_id(cluster_id)
         self.config_interval_s                 = config_interval_s
 
     async def run(self):
@@ -66,7 +66,7 @@ class SensorCluster:
             while True:
                 try:
                     response = await client.get(
-                        f"{self.base_url}/sensors-by-cluster/C{self.cluster_id}"
+                        f"{self.base_url}/sensors-by-cluster/{self.cluster_id}"
                     )
 
                     rows = response.json()
@@ -106,7 +106,7 @@ class SensorCluster:
                 await client.post(
                     f"{self.base_url}/sensor-measurement",
                     json={
-                        "sensor_id": f"C{self.cluster_id}S{sensor.id}",
+                        "sensor_id": f"{self.cluster_id}{self._normalize_sensor_id(sensor.id)}",
                         "sensor_type": sensor.type,
                         "value": value,
                     },
@@ -117,6 +117,14 @@ class SensorCluster:
 
     def _jitter(self, interval_s: int):
         return max(1.0, interval_s + random.uniform(-0.1, 0.1) * interval_s)
+
+    def _normalize_cluster_id(self, cluster_id: str) -> str:
+        cluster_id = str(cluster_id).strip().upper()
+        return cluster_id if cluster_id.startswith("C") else f"C{cluster_id}"
+
+    def _normalize_sensor_id(self, sensor_id: str) -> str:
+        sensor_id = str(sensor_id).strip().upper()
+        return sensor_id if sensor_id.startswith("S") else f"S{sensor_id}"
 
 
 def __parse_args__() -> Namespace:

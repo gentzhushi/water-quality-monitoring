@@ -14,7 +14,7 @@ services:
 
   server:
     build:
-      context: ./server
+      context: ./sensor-server
     environment:
       - PYTHONUNBUFFERED=1
     ports:

@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Quality Digital Twin</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #f7f9fb;
+            --panel: #ffffff;
+            --panel-soft: #eef4f6;
+            --line: #d7e0e5;
+            --text: #172026;
+            --muted: #65727c;
+            --teal: #087f8c;
+            --blue: #2563eb;
+            --green: #17803d;
+            --amber: #b7791f;
+            --red: #b42318;
+            --ink: #111827;
+            --radius: 8px;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, "Segoe UI", Arial, sans-serif;
+            letter-spacing: 0;
+        }
+
+        .app {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 248px 1fr;
+        }
+
+        .sidebar {
+            background: #10242c;
+            color: white;
+            padding: 22px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .brand {
+            padding: 0 8px 16px;
+            border-bottom: 1px solid rgba(255,255,255,.14);
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 19px;
+            font-weight: 650;
+            line-height: 1.2;
+        }
+
+        .brand span {
+            display: block;
+            margin-top: 6px;
+            color: #a8bdc6;
+            font-size: 12px;
+        }
+
+        .nav {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .nav button {
+            width: 100%;
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            color: #cfe0e6;
+            cursor: pointer;
+            text-align: left;
+            padding: 10px 12px;
+            font-size: 14px;
+        }
+
+        .nav button:hover,
+        .nav button.active {
+            background: rgba(255,255,255,.12);
+            color: white;
+        }
+
+        .main {
+            min-width: 0;
+            padding: 26px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+
+        .topbar h2 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 650;
+        }
+
+        .topbar p {
+            margin: 5px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn,
+        select,
+        input[type="date"] {
+            height: 34px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: white;
+            color: var(--text);
+            padding: 0 10px;
+            font-size: 13px;
+        }
+
+        .btn {
+            cursor: pointer;
+            background: var(--ink);
+            border-color: var(--ink);
+            color: white;
+            font-weight: 550;
+        }
+
+        .btn.secondary {
+            background: white;
+            color: var(--text);
+            border-color: var(--line);
+        }
+
+        .view { display: none; }
+        .view.active { display: block; }
+
+        .grid {
+            display: grid;
+            gap: 14px;
+        }
+
+        .kpis {
+            grid-template-columns: repeat(6, minmax(120px, 1fr));
+            margin-bottom: 18px;
+        }
+
+        .two-col {
+            grid-template-columns: minmax(0, 1fr) minmax(520px, .72fr);
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 15px;
+        }
+
+        .card h3 {
+            margin: 0 0 12px;
+            font-size: 15px;
+            font-weight: 650;
+        }
+
+        .kpi .label {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .kpi .value {
+            margin-top: 7px;
+            font-size: 24px;
+            line-height: 1.25;
+            font-weight: 700;
+            overflow-wrap: anywhere;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 3px 9px;
+            font-size: 12px;
+            font-weight: 700;
+            background: #e7f6ec;
+            color: var(--green);
+        }
+
+        .status.WARNING,
+        .status.WATCH {
+            background: #fff3d6;
+            color: var(--amber);
+        }
+
+        .status.CRITICAL {
+            background: #fde7e5;
+            color: var(--red);
+        }
+
+        .table-wrap {
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12.5px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            border-bottom: 1px solid var(--line);
+            padding: 9px 10px;
+            vertical-align: top;
+            white-space: nowrap;
+        }
+
+        th {
+            color: var(--muted);
+            background: var(--panel-soft);
+            font-weight: 650;
+        }
+
+        tr:last-child td { border-bottom: 0; }
+
+        .chart-box {
+            height: 300px;
+            position: relative;
+        }
+
+        .note {
+            color: var(--muted);
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .empty {
+            padding: 28px;
+            text-align: center;
+            color: var(--muted);
+            background: var(--panel);
+            border: 1px dashed var(--line);
+            border-radius: var(--radius);
+        }
+
+        .split-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .sensor-row {
+            display: grid;
+            grid-template-columns: minmax(100px, 1fr) 90px 90px 120px;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--line);
+            font-size: 13px;
+        }
+
+        .sensor-row:last-child { border-bottom: 0; }
+        .muted { color: var(--muted); }
+        .strong { font-weight: 700; }
+
+        @media (max-width: 980px) {
+            .app { grid-template-columns: 1fr; }
+            .sidebar { position: static; }
+            .nav { display: grid; grid-template-columns: repeat(2, 1fr); }
+            .kpis, .two-col { grid-template-columns: 1fr; }
+            .main { padding: 18px; }
+        }
+    </style>
+</head>
+<body data-location="{{ default_location_id }}">
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <h1>Water Quality Digital Twin</h1>
+            <span id="location-label">{{ default_location_id }}</span>
+        </div>
+        <nav class="nav">
+            <button class="active" data-view="overview">Overview</button>
+            <button data-view="readings">Readings</button>
+            <button data-view="alarms">Alarms</button>
+            <button data-view="ai">AI Insights</button>
+            <button data-view="performance">Performance</button>
+        </nav>
+    </aside>
+
+    <main class="main">
+        <div class="topbar">
+            <div>
+                <h2 id="view-title">Overview</h2>
+                <p id="last-refresh">Waiting for data</p>
+            </div>
+            <div class="toolbar">
+                <select id="sensor-select"></select>
+                <input type="date" id="date-input">
+                <button class="btn secondary" id="refresh-btn">Refresh</button>
+            </div>
+        </div>
+
+        <section id="overview" class="view active">
+            <div class="grid kpis" id="kpi-grid"></div>
+            <div class="grid two-col">
+                <div class="card">
+                    <h3>Latest Sensor State</h3>
+                    <div id="latest-readings"></div>
+                </div>
+                <div class="card">
+                    <h3>Recent Alerts</h3>
+                    <div id="recent-alerts"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="readings" class="view">
+            <div class="card">
+                <h3>Processed Readings</h3>
+                <div class="chart-box"><canvas id="readings-chart"></canvas></div>
+                <div class="note">Read-only view from Cassandra table readings_by_sensor_day.</div>
+            </div>
+        </section>
+
+        <section id="alarms" class="view">
+            <div class="grid two-col">
+                <div class="card">
+                    <h3>Alarm Center</h3>
+                    <div id="alarms-table"></div>
+                </div>
+                <div class="card">
+                    <h3>Alert Timeline</h3>
+                    <div id="alerts-table"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="ai" class="view">
+            <div class="grid two-col">
+                <div class="card">
+                    <h3>Explainable Anomaly Score</h3>
+                    <div class="chart-box"><canvas id="ai-chart"></canvas></div>
+                    <div id="ai-latest" class="note"></div>
+                </div>
+                <div class="card">
+                    <h3>Score Components</h3>
+                    <div id="ai-table"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="performance" class="view">
+            <div class="grid two-col">
+                <div class="card">
+                    <h3>Pipeline Throughput</h3>
+                    <div class="chart-box"><canvas id="performance-chart"></canvas></div>
+                    <div class="note">Per-minute metrics generated by Spark during Cassandra writes.</div>
+                </div>
+                <div class="card">
+                    <h3>Latency & Alerts</h3>
+                    <div id="performance-table"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<script>
+const state = {
+    locationId: document.body.dataset.location,
+    sensors: [],
+    charts: {},
+    view: 'overview'
+};
+
+const titles = {
+    overview: 'Overview',
+    readings: 'Readings',
+    alarms: 'Alarms',
+    ai: 'AI Insights',
+    performance: 'Performance'
+};
+
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
+function fmt(value, digits = 2) {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'number') return Number(value).toFixed(digits);
+    return value;
+}
+
+function fmtTime(value) {
+    if (!value) return '—';
+    return new Date(value).toLocaleTimeString();
+}
+
+function todayIso() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+async function getJson(path) {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.json();
+}
+
+function setUpdated() {
+    document.getElementById('last-refresh').textContent = `Last refresh: ${new Date().toLocaleTimeString()}`;
+}
+
+function showEmpty(targetId, label) {
+    document.getElementById(targetId).innerHTML = `<div class="empty">${esc(label)}</div>`;
+}
+
+function renderTable(targetId, columns, rows) {
+    if (!rows.length) {
+        showEmpty(targetId, 'No data available yet.');
+        return;
+    }
+
+    const head = columns.map(col => `<th>${esc(col.label)}</th>`).join('');
+    const body = rows.map(row => `
+        <tr>
+            ${columns.map(col => `<td>${esc(col.render ? col.render(row) : row[col.key])}</td>`).join('')}
+        </tr>
+    `).join('');
+
+    document.getElementById(targetId).innerHTML = `
+        <div class="table-wrap">
+            <table>
+                <thead><tr>${head}</tr></thead>
+                <tbody>${body}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+function statusPill(value) {
+    const label = value || 'NORMAL';
+    return `<span class="status ${esc(label)}">${esc(label)}</span>`;
+}
+
+function destroyChart(id) {
+    if (state.charts[id]) {
+        state.charts[id].destroy();
+        state.charts[id] = null;
+    }
+}
+
+function drawLineChart(id, labels, datasets) {
+    destroyChart(id);
+    state.charts[id] = new Chart(document.getElementById(id), {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: { legend: { position: 'bottom' } },
+            scales: {
+                x: { grid: { color: '#00000008' }, ticks: { maxTicksLimit: 8 } },
+                y: { grid: { color: '#0000000d' } },
+                y1: { position: 'right', grid: { drawOnChartArea: false } }
+            }
+        }
+    });
+}
+
+function drawBarLineChart(id, labels, barData, lineData) {
+    destroyChart(id);
+    state.charts[id] = new Chart(document.getElementById(id), {
+        data: {
+            labels,
+            datasets: [
+                {
+                    type: 'bar',
+                    label: 'Processed readings',
+                    data: barData,
+                    backgroundColor: '#087f8c99',
+                    borderColor: '#087f8c'
+                },
+                {
+                    type: 'line',
+                    label: 'Avg latency ms',
+                    data: lineData,
+                    borderColor: '#b7791f',
+                    backgroundColor: '#b7791f22',
+                    tension: .3,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { position: 'bottom' } },
+            scales: {
+                y: { beginAtZero: true },
+                y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } }
+            }
+        }
+    });
+}
+
+async function loadSensors() {
+    const data = await getJson(`/api/sensors?location_id=${encodeURIComponent(state.locationId)}`);
+    state.sensors = data.items || [];
+    const select = document.getElementById('sensor-select');
+    select.innerHTML = state.sensors.map(sensor => `
+        <option value="${esc(sensor.sensor_id)}">${esc(sensor.sensor_id)} · ${esc(sensor.parameter)}</option>
+    `).join('');
+}
+
+async function loadOverview() {
+    const data = await getJson(`/api/overview?location_id=${encodeURIComponent(state.locationId)}`);
+    const metric = data.latest_metric || {};
+    document.getElementById('kpi-grid').innerHTML = [
+        ['System Status', statusPill(data.system_status)],
+        ['Active Sensors', fmt(data.active_sensor_count, 0)],
+        ['Recent Alert Events', fmt(data.active_alert_count, 0)],
+        ['Average pH', fmt(data.average_ph)],
+        ['Average Temp', `${fmt(data.average_temperature)} C`],
+        ['Avg Latency', `${fmt(metric.avg_event_latency_ms, 0)} ms`],
+    ].map(([label, value]) => `
+        <div class="card kpi">
+            <div class="label">${label}</div>
+            <div class="value">${value}</div>
+        </div>
+    `).join('');
+
+    const aiBySensor = Object.fromEntries((data.latest_ai || []).map(item => [item.sensor_id, item]));
+    if (!data.latest_readings.length) {
+        showEmpty('latest-readings', 'No latest readings in Cassandra yet.');
+    } else {
+        document.getElementById('latest-readings').innerHTML = `
+            <div class="split-list">
+                ${data.latest_readings.map(item => {
+                    const ai = aiBySensor[item.sensor_id] || {};
+                    return `
+                        <div class="sensor-row">
+                            <div>
+                                <div class="strong">${esc(item.sensor_id)}</div>
+                                <div class="muted">${esc(item.parameter)} · ${fmtTime(item.event_time)}</div>
+                            </div>
+                            <div>${fmt(item.value)} ${esc(item.unit || '')}</div>
+                            <div>${statusPill(ai.anomaly_level || item.quality_status?.toUpperCase())}</div>
+                            <div class="muted">Score ${fmt(ai.anomaly_score)}</div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    renderTable('recent-alerts', [
+        { label: 'Time', render: row => fmtTime(row.event_time) },
+        { label: 'Sensor', key: 'sensor_id' },
+        { label: 'Type', key: 'alert_type' },
+        { label: 'Severity', key: 'severity' },
+    ], data.recent_alerts || []);
+}
+
+async function loadReadings() {
+    const sensorId = document.getElementById('sensor-select').value;
+    const day = document.getElementById('date-input').value || todayIso();
+    const data = await getJson(`/api/readings?sensor_id=${encodeURIComponent(sensorId)}&bucket_date=${day}&limit=240`);
+    const rows = data.items || [];
+
+    if (!rows.length) {
+        destroyChart('readings-chart');
+        return;
+    }
+
+    drawLineChart('readings-chart', rows.map(row => fmtTime(row.event_time)), [
+        {
+            label: `${sensorId} value`,
+            data: rows.map(row => row.value),
+            borderColor: '#2563eb',
+            backgroundColor: '#2563eb22',
+            tension: .25,
+            pointRadius: rows.length > 80 ? 0 : 2
+        }
+    ]);
+}
+
+async function loadAlarms() {
+    const day = document.getElementById('date-input').value || todayIso();
+    const [alarms, alerts] = await Promise.all([
+        getJson(`/api/alarms?location_id=${encodeURIComponent(state.locationId)}&bucket_date=${day}`),
+        getJson(`/api/alerts?location_id=${encodeURIComponent(state.locationId)}&bucket_date=${day}&limit=200`)
+    ]);
+
+    renderTable('alarms-table', [
+        { label: 'State', key: 'state' },
+        { label: 'Sensor', key: 'sensor_id' },
+        { label: 'Alarm', key: 'alert_type' },
+        { label: 'Count', key: 'alert_count' },
+        { label: 'Last Seen', render: row => fmtTime(row.last_seen) },
+    ], alarms.items || []);
+
+    renderTable('alerts-table', [
+        { label: 'Time', render: row => fmtTime(row.event_time) },
+        { label: 'Sensor', key: 'sensor_id' },
+        { label: 'Type', key: 'alert_type' },
+        { label: 'Value', render: row => `${fmt(row.value)} ${row.unit || ''}` },
+        { label: 'Severity', key: 'severity' },
+    ], alerts.items || []);
+}
+
+async function loadAi() {
+    const sensorId = document.getElementById('sensor-select').value;
+    const day = document.getElementById('date-input').value || todayIso();
+    const data = await getJson(`/api/ai-insights?sensor_id=${encodeURIComponent(sensorId)}&bucket_date=${day}&limit=160`);
+    const rows = data.items || [];
+
+    if (!rows.length) {
+        destroyChart('ai-chart');
+        showEmpty('ai-table', 'No AI scores available yet.');
+        document.getElementById('ai-latest').textContent = '';
+        return;
+    }
+
+    drawLineChart('ai-chart', rows.map(row => fmtTime(row.event_time)), [
+        {
+            label: 'Anomaly score',
+            data: rows.map(row => row.anomaly_score),
+            borderColor: '#b42318',
+            backgroundColor: '#b4231820',
+            tension: .25
+        },
+        {
+            label: 'Rolling average',
+            data: rows.map(row => row.rolling_average),
+            borderColor: '#087f8c',
+            backgroundColor: '#087f8c18',
+            tension: .25,
+            yAxisID: 'y1'
+        }
+    ]);
+
+    const latest = rows.at(-1);
+    document.getElementById('ai-latest').textContent =
+        `${latest.anomaly_level}: ${latest.explanation}`;
+
+    renderTable('ai-table', [
+        { label: 'Time', render: row => fmtTime(row.event_time) },
+        { label: 'Value', render: row => fmt(row.value) },
+        { label: 'Avg', render: row => fmt(row.rolling_average) },
+        { label: 'Z', render: row => fmt(row.z_score) },
+        { label: 'Rate', render: row => fmt(row.rate_of_change) },
+        { label: 'Score', render: row => fmt(row.anomaly_score) },
+        { label: 'Level', key: 'anomaly_level' },
+    ], rows.slice(-20).reverse());
+}
+
+async function loadPerformance() {
+    const day = document.getElementById('date-input').value || todayIso();
+    const data = await getJson(`/api/performance?metric_date=${day}&limit=160`);
+    const rows = data.items || [];
+
+    if (!rows.length) {
+        destroyChart('performance-chart');
+        showEmpty('performance-table', 'No performance metrics available yet.');
+        return;
+    }
+
+    drawBarLineChart(
+        'performance-chart',
+        rows.map(row => fmtTime(row.minute_start)),
+        rows.map(row => row.processed_reading_count),
+        rows.map(row => row.avg_event_latency_ms)
+    );
+
+    renderTable('performance-table', [
+        { label: 'Minute', render: row => fmtTime(row.minute_start) },
+        { label: 'Processed', key: 'processed_reading_count' },
+        { label: 'Alerts', key: 'alert_count' },
+        { label: 'Avg Score', render: row => fmt(row.avg_anomaly_score) },
+        { label: 'Max Score', render: row => fmt(row.max_anomaly_score) },
+        { label: 'Avg Latency', render: row => `${fmt(row.avg_event_latency_ms, 0)} ms` },
+    ], rows.slice(-20).reverse());
+}
+
+async function refreshCurrentView() {
+    try {
+        if (!state.sensors.length) await loadSensors();
+        if (state.view === 'overview') await loadOverview();
+        if (state.view === 'readings') await loadReadings();
+        if (state.view === 'alarms') await loadAlarms();
+        if (state.view === 'ai') await loadAi();
+        if (state.view === 'performance') await loadPerformance();
+        setUpdated();
+    } catch (error) {
+        document.getElementById('last-refresh').textContent = `Refresh failed: ${error.message}`;
+    }
+}
+
+document.querySelectorAll('.nav button').forEach(button => {
+    button.addEventListener('click', async () => {
+        document.querySelectorAll('.nav button').forEach(item => item.classList.remove('active'));
+        document.querySelectorAll('.view').forEach(item => item.classList.remove('active'));
+        button.classList.add('active');
+        state.view = button.dataset.view;
+        document.getElementById(state.view).classList.add('active');
+        document.getElementById('view-title').textContent = titles[state.view];
+        await refreshCurrentView();
+    });
+});
+
+document.getElementById('refresh-btn').addEventListener('click', refreshCurrentView);
+document.getElementById('sensor-select').addEventListener('change', refreshCurrentView);
+document.getElementById('date-input').addEventListener('change', refreshCurrentView);
+document.getElementById('date-input').value = todayIso();
+
+loadSensors().then(refreshCurrentView);
+setInterval(refreshCurrentView, 30000);
+</script>
+</body>
+</html>

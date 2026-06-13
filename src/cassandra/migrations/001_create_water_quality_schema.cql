@@ -89,6 +89,32 @@ CREATE TABLE IF NOT EXISTS latest_readings_by_location (
     PRIMARY KEY ((location_id), parameter, sensor_id)
 ) WITH CLUSTERING ORDER BY (parameter ASC, sensor_id ASC);
 
+-- Alert history for alarm dashboards and notification audit.
+CREATE TABLE IF NOT EXISTS alerts_by_sensor_day (
+    sensor_id text,
+    bucket_date date,
+    event_time timestamp,
+    alert_id text,
+    location_id text,
+    location_name text,
+    parameter text,
+    value double,
+    unit text,
+    alert_type text,
+    severity text,
+    threshold_low double,
+    threshold_high double,
+    message text,
+    processed_at timestamp,
+    PRIMARY KEY ((sensor_id, bucket_date), event_time, alert_id)
+) WITH CLUSTERING ORDER BY (event_time DESC, alert_id ASC)
+  AND default_time_to_live = 157680000
+  AND compaction = {
+      'class': 'TimeWindowCompactionStrategy',
+      'compaction_window_unit': 'DAYS',
+      'compaction_window_size': '30'
+  };
+
 -- Hourly aggregates for recent dashboard trend charts.
 CREATE TABLE IF NOT EXISTS readings_hourly_by_location_parameter (
     location_id text,

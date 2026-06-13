@@ -48,6 +48,7 @@ build/
 compile_commands.json
 
 # Docker
+.env
 *.env
 docker-compose.override.yml
 .docker/

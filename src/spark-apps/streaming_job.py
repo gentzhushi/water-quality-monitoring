@@ -5,6 +5,7 @@ from pyspark.sql.functions import (
     avg,
     col,
     coalesce,
+    concat_ws,
     count,
     current_timestamp,
     date_format,
@@ -14,6 +15,7 @@ from pyspark.sql.functions import (
     max as spark_max,
     min as spark_min,
     row_number,
+    sha2,
     struct,
     to_date,
     to_json,
@@ -32,7 +34,7 @@ ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "water-quality-alerts")
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = os.getenv("CASSANDRA_PORT", "9042")
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
-CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v2"
+CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v3"
 
 PH_LOW_LIMIT = 6.5
 PH_HIGH_LIMIT = 8.5
@@ -186,6 +188,32 @@ def write_daily_aggregates(batch_df, _batch_id):
     )
 
 
+def write_alert_history(batch_df, _batch_id):
+    if not batch_has_rows(batch_df):
+        return
+
+    write_to_cassandra(
+        batch_df.select(
+            "sensor_id",
+            "bucket_date",
+            "event_time",
+            "alert_id",
+            "location_id",
+            "location_name",
+            "parameter",
+            "value",
+            "unit",
+            "alert_type",
+            "severity",
+            "threshold_low",
+            "threshold_high",
+            "message",
+            "processed_at",
+        ),
+        "alerts_by_sensor_day",
+    )
+
+
 # Sensor metadata used to enrich incoming readings
 sensor_metadata = (
     spark.read.format("org.apache.spark.sql.cassandra")
@@ -194,6 +222,7 @@ sensor_metadata = (
     .select(
         "sensor_id",
         "location_id",
+        "location_name",
         "parameter",
         "unit",
     )
@@ -265,8 +294,10 @@ processed_readings = (
     )
     .select(
         "sensor_id",
+        "sensor_type",
         "event_time",
         "location_id",
+        "location_name",
         "parameter",
         "value",
         "unit",
@@ -278,9 +309,9 @@ processed_readings = (
     )
 )
 
-# Detect abnormal readings and send alerts back to Kafka
+# Detect abnormal readings and prepare enriched alert events.
 alerts = (
-    valid_readings.withColumn(
+    processed_readings.withColumn(
         "alert_type",
         when(low_ph_reading, lit("LOW_PH"))
         .when(high_ph_reading, lit("HIGH_PH"))
@@ -288,6 +319,21 @@ alerts = (
         .when(high_temperature_reading, lit("HIGH_TEMPERATURE")),
     )
     .where(col("alert_type").isNotNull())
+    .withColumn(
+        "threshold_low",
+        when(col("sensor_type") == "pH", lit(PH_LOW_LIMIT)).when(
+            col("sensor_type") == "temperature",
+            lit(TEMPERATURE_LOW_LIMIT),
+        ),
+    )
+    .withColumn(
+        "threshold_high",
+        when(col("sensor_type") == "pH", lit(PH_HIGH_LIMIT)).when(
+            col("sensor_type") == "temperature",
+            lit(TEMPERATURE_HIGH_LIMIT),
+        ),
+    )
+    .withColumn("severity", lit("warning"))
     .withColumn(
         "message",
         when(col("alert_type") == "LOW_PH", lit("pH value is below allowed threshold"))
@@ -301,9 +347,27 @@ alerts = (
             lit("Temperature value is above allowed threshold"),
         ),
     )
+    .withColumn("processed_at", current_timestamp())
     .withColumn(
-        "processed_at",
-        date_format(current_timestamp(), "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
+        "event_time_text",
+        date_format(col("event_time"), "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
+    )
+    .withColumn(
+        "processed_at_text",
+        date_format(col("processed_at"), "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
+    )
+    .withColumn(
+        "alert_id",
+        sha2(
+            concat_ws(
+                "|",
+                col("sensor_id"),
+                col("alert_type"),
+                col("event_time_text"),
+                col("value").cast("string"),
+            ),
+            256,
+        ),
     )
 )
 
@@ -311,13 +375,20 @@ alert_output = alerts.select(
     col("sensor_id").cast("string").alias("key"),
     to_json(
         struct(
+            "alert_id",
             "sensor_id",
-            "sensor_type",
+            "location_id",
+            "location_name",
+            "parameter",
             "value",
+            "unit",
             "alert_type",
+            "severity",
+            "threshold_low",
+            "threshold_high",
             "message",
-            "timestamp",
-            "processed_at",
+            col("event_time_text").alias("event_time"),
+            col("processed_at_text").alias("processed_at"),
         )
     ).alias("value"),
 )
@@ -426,6 +497,14 @@ alerts_kafka_query = (
     .option("checkpointLocation", f"{CHECKPOINT_BASE}/alerts-kafka")
     .queryName("alerts_to_kafka")
     .outputMode("append")
+    .start()
+)
+
+alerts_cassandra_query = (
+    alerts.writeStream.outputMode("append")
+    .foreachBatch(write_alert_history)
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/alerts-cassandra")
+    .queryName("alerts_to_cassandra")
     .start()
 )
 

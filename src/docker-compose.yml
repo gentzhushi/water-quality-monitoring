@@ -74,6 +74,28 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_TOPIC=water-quality-readings
 
+  notification-service:
+    build:
+      context: ./notification-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - PYTHONUNBUFFERED=1
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - ALERTS_TOPIC=water-quality-alerts
+      - KAFKA_GROUP_ID=water-quality-notification-service
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_SENDER_EMAIL=${SMTP_SENDER_EMAIL:-}
+      - SMTP_SENDER_NAME=${SMTP_SENDER_NAME:-Water Quality Monitoring}
+      - NOTIFICATION_RECIPIENTS=${NOTIFICATION_RECIPIENTS:-}
+      - NOTIFICATION_DRY_RUN=${NOTIFICATION_DRY_RUN:-true}
+      - ALERT_COOLDOWN_SECONDS=${ALERT_COOLDOWN_SECONDS:-300}
+    restart: unless-stopped
+
   spark-master:
     image: apache/spark:3.5.5
     container_name: spark-master

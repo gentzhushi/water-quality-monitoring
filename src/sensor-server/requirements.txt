@@ -2,3 +2,4 @@ fastapi
 uvicorn
 jinja2
 cassandra-driver
+confluent-kafka==2.5.3

@@ -33,6 +33,8 @@ services:
       - CASSANDRA_HOST=cassandra
       - CASSANDRA_PORT=9042
       - CASSANDRA_KEYSPACE=water_quality
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=water-quality-readings
     ports:
       - "80:80"
     healthcheck:
@@ -42,6 +44,8 @@ services:
       retries: 3
       start_period: 0s
     depends_on:
+      kafka:
+        condition: service_healthy
       cassandra:
         condition: service_healthy
 

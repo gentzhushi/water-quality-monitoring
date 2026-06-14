@@ -6,6 +6,8 @@ from  fastapi.templating import Jinja2Templates
 from  functools          import lru_cache
 from  pydantic           import BaseModel
 from  typing             import Any
+from  confluent_kafka    import Producer
+import json
 import os
 import re
 import time
@@ -17,6 +19,8 @@ CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
 CASSANDRA_CONNECT_RETRIES = int(os.getenv("CASSANDRA_CONNECT_RETRIES", "12"))
 CASSANDRA_CONNECT_DELAY_SEC = float(os.getenv("CASSANDRA_CONNECT_DELAY_SEC", "5"))
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "water-quality-readings")
 
 
 app = FastAPI()
@@ -38,7 +42,7 @@ class MeasurementPayload(BaseModel):
     value: float | None = None
 
 
-DATA: list[dict[str, Any]] = []
+# DATA: list[dict[str, Any]] = []
 
 
 @lru_cache(maxsize=1)
@@ -54,6 +58,32 @@ def get_cassandra_session() -> Session:
             time.sleep(CASSANDRA_CONNECT_DELAY_SEC)
 
     raise RuntimeError("Could not connect to Cassandra") from last_error
+
+
+@lru_cache(maxsize=1)
+def get_kafka_producer() -> Producer:
+    return Producer(
+        {
+            "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+            "client.id": "water-quality-sensor-server",
+        }
+    )
+
+
+def kafka_delivery_report(error, message) -> None:
+    if error is not None:
+        print(f"Failed to deliver sensor reading to Kafka: {error}", flush=True)
+
+
+def publish_measurement(message: dict[str, Any]) -> None:
+    producer = get_kafka_producer()
+    producer.produce(
+        KAFKA_TOPIC,
+        key=message["sensor_id"],
+        value=json.dumps(message),
+        callback=kafka_delivery_report,
+    )
+    producer.poll(0)
 
 
 def row_to_config(row) -> SensorConfigPayload:
@@ -154,7 +184,12 @@ def save_sensor_config(cluster_id: str, sensor_id: str, config: SensorConfigPayl
 
 @app.post("/sensor-measurement")
 async def post_measurement(payload: MeasurementPayload):
-    DATA.append(payload.model_dump())
+    message = {
+        **payload.model_dump(),
+        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+    # DATA.append(message)
+    publish_measurement(message)
     return {"status": "ok"}
 
 
@@ -218,9 +253,9 @@ def get_dashboard(request: Request):
     return templates.TemplateResponse(request, "index.html", context_data)
 
 
-@app.get("/dump/data")
-def dump_data():
-    return {"data": DATA}
+# @app.get("/dump/data")
+# def dump_data():
+#     return {"data": DATA}
 
 
 @app.get("/dump/sensor-configs")

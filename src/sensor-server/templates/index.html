@@ -154,6 +154,12 @@
             flex-direction: column;
             transition: box-shadow .15s;
         }
+
+        .card-button {
+          background: var(--sensor-color, var(--c-default));
+          color: white;
+        }
+
         .sensor-card:hover            { box-shadow: 0 4px 14px rgba(0,0,0,.07); }
         .sensor-card[style*="none"]   { display: none !important; }
 
@@ -391,20 +397,8 @@
                 <span>{{ config.config_interval_s if config.config_interval_s is not none else '—' }}s</span>
             </div>
 
-            <div class="sparkline-wrap">
-                <div class="spark-empty" id="spark-empty-{{ full_sid }}">Loading…</div>
-                <canvas id="spark-{{ full_sid }}" style="display:none"></canvas>
-            </div>
-
             <div class="card-actions">
-                <button class="btn btn-sm" onclick='openChartModal(
-                    {{ full_sid|tojson }},
-                    {{ type_text|tojson }},
-                    {{ config.min if config.min is not none else 'null' }},
-                    {{ config.max if config.max is not none else 'null' }}
-                )'>View history</button>
-
-                <button class="btn btn-sm btn-dark" onclick="openConfigModalFromButton(this)">Configure</button>
+                <button class="btn btn-sm card-button" onclick="openConfigModalFromButton(this)">Configure</button>
             </div>
         </div>
         {% endfor %}

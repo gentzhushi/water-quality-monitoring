@@ -317,7 +317,7 @@
         }
     </style>
 </head>
-<body data-cluster="{{ default_cluster_id }}">
+<body data-cluster="{{ default_cluster_id }}" data-location="{{ default_location_id }}">
 <div class="app">
     <aside class="sidebar">
         <div class="brand">
@@ -442,6 +442,7 @@
 <script>
 const state = {
     clusterId: document.body.dataset.cluster || '',
+    locationId: document.body.dataset.location || '',
     clusters: [],
     sensors: [],
     charts: {},
@@ -645,11 +646,8 @@ async function loadClusters() {
             return `<option value="${esc(clusterId)}">${esc(clusterId)}</option>`;
         })
     ].join('');
-    const defaultCluster = state.clusterId || data.default_cluster_id || '';
-    if ([...select.options].some(option => option.value === defaultCluster)) {
-        select.value = defaultCluster;
-        state.clusterId = defaultCluster;
-    }
+    select.value = '';
+    state.clusterId = '';
 }
 
 async function loadOverview() {
@@ -862,7 +860,12 @@ function renderLatestPrediction(prediction) {
 
 async function loadPredictions() {
     const day = document.getElementById('date-input').value || todayIso();
-    const data = await getJson(`/api/ml-predictions?location_id=${encodeURIComponent(state.locationId)}&prediction_date=${day}&limit=160`);
+    const params = {
+        prediction_date: day,
+        limit: 160
+    };
+    if (state.locationId) params.location_id = state.locationId;
+    const data = await getJson(withQuery('/api/ml-predictions', params));
     const rows = data.items || [];
 
     renderLatestPrediction(data.latest);
@@ -955,7 +958,8 @@ document.querySelectorAll('.nav button').forEach(button => {
 
 document.getElementById('refresh-btn').addEventListener('click', refreshCurrentView);
 document.getElementById('cluster-select').addEventListener('change', async event => {
-    state.clusterId = event.target.value;
+    event.target.value = '';
+    state.clusterId = '';
     state.sensors = [];
     document.getElementById('sensor-select').innerHTML = '';
     await loadSensors();

@@ -19,6 +19,7 @@ CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
 DEFAULT_CLUSTER_ID = os.getenv("DEFAULT_CLUSTER_ID", "C3")
+DEFAULT_LOCATION_ID = os.getenv("DEFAULT_LOCATION_ID", "")
 
 app = FastAPI(title="Water Quality Digital Twin Dashboard")
 templates = Jinja2Templates(directory="templates")
@@ -323,16 +324,30 @@ def normalize_ml_prediction(row: dict[str, Any] | None) -> dict[str, Any] | None
 
 
 def get_latest_ml_prediction(location_id: str = DEFAULT_LOCATION_ID) -> dict[str, Any] | None:
-    rows = query_rows(
-        """
-        SELECT location_id, prediction_time, forecast_horizon_minutes, risk_score,
-               risk_level, predicted_event_type, class_probabilities, explanation,
-               model_name, model_version, computed_at
-        FROM latest_ml_predictions_by_location
-        WHERE location_id = %s
-        """,
-        (location_id,),
-    )
+    if location_id:
+        rows = query_rows(
+            """
+            SELECT location_id, prediction_time, forecast_horizon_minutes, risk_score,
+                   risk_level, predicted_event_type, class_probabilities, explanation,
+                   model_name, model_version, computed_at
+            FROM latest_ml_predictions_by_location
+            WHERE location_id = %s
+            """,
+            (location_id,),
+        )
+    else:
+        rows = query_rows(
+            """
+            SELECT location_id, prediction_time, forecast_horizon_minutes, risk_score,
+                   risk_level, predicted_event_type, class_probabilities, explanation,
+                   model_name, model_version, computed_at
+            FROM latest_ml_predictions_by_location
+            """
+        )
+        rows.sort(
+            key=lambda row: row.get("computed_at") or row.get("prediction_time"),
+            reverse=True,
+        )
     if not rows:
         return None
     return normalize_ml_prediction(rows[0])
@@ -351,6 +366,7 @@ def digital_twin(request: Request):
         {
             "default_cluster_id": DEFAULT_CLUSTER_ID,
             "default_cluster_label": "All sensors",
+            "default_location_id": DEFAULT_LOCATION_ID,
         },
     )
 
@@ -386,23 +402,21 @@ def api_latest_readings(cluster_id: str | None = None):
 
 @app.get("/api/overview")
 def api_overview(cluster_id: str | None = None):
-    sensors = get_sensors(cluster_id)
-    latest = api_latest_readings(cluster_id)["items"]
+    sensors = get_sensors()
+    latest = api_latest_readings()["items"]
     parameter_rules = get_parameter_rules()
-    latest_ml_prediction = get_latest_ml_prediction(location_id)
+    latest_ml_prediction = get_latest_ml_prediction()
     latest_ai = get_latest_rows_for_clusters(
         "latest_ai_scores_by_cluster",
         "cluster_id, parameter, sensor_id, local_sensor_id, event_time, value, unit, anomaly_score, anomaly_level, rolling_average, z_score, rate_of_change, explanation, updated_at",
-        cluster_id,
     )
     today = utc_today()
     alerts = get_day_rows_for_clusters(
         "alerts_by_cluster_day",
         "cluster_id, bucket_date, event_time, sensor_id, local_sensor_id, parameter, value, unit, alert_type, severity, alarm_state, message, explanation, processed_at",
         today,
-        cluster_id,
     )
-    metrics = aggregate_metrics(get_metric_rows_for_clusters(today, cluster_id))
+    metrics = aggregate_metrics(get_metric_rows_for_clusters(today))
 
     recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
     recent_alerts = [
@@ -455,7 +469,7 @@ def api_overview(cluster_id: str | None = None):
     parameter_averages.sort(key=lambda item: item["display_name"])
 
     return {
-        "cluster_id": normalize_cluster_id(cluster_id),
+        "cluster_id": None,
         "system_status": system_status,
         "active_sensor_count": len(sensors),
         "active_alert_count": len(recent_alerts),

@@ -1,3 +1,4 @@
+import json
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -296,6 +297,47 @@ def get_parameter_rules() -> dict[str, dict[str, Any]]:
     return {row["parameter"]: row for row in rows}
 
 
+def parse_class_probabilities(value: Any) -> dict[str, float]:
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return parsed
+
+
+def normalize_ml_prediction(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+
+    prediction = dict(row)
+    prediction["class_probabilities"] = parse_class_probabilities(
+        prediction.get("class_probabilities")
+    )
+    return prediction
+
+
+def get_latest_ml_prediction(location_id: str = DEFAULT_LOCATION_ID) -> dict[str, Any] | None:
+    rows = query_rows(
+        """
+        SELECT location_id, prediction_time, forecast_horizon_minutes, risk_score,
+               risk_level, predicted_event_type, class_probabilities, explanation,
+               model_name, model_version, computed_at
+        FROM latest_ml_predictions_by_location
+        WHERE location_id = %s
+        """,
+        (location_id,),
+    )
+    if not rows:
+        return None
+    return normalize_ml_prediction(rows[0])
+
+
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/digital-twin")
@@ -347,6 +389,7 @@ def api_overview(cluster_id: str | None = None):
     sensors = get_sensors(cluster_id)
     latest = api_latest_readings(cluster_id)["items"]
     parameter_rules = get_parameter_rules()
+    latest_ml_prediction = get_latest_ml_prediction(location_id)
     latest_ai = get_latest_rows_for_clusters(
         "latest_ai_scores_by_cluster",
         "cluster_id, parameter, sensor_id, local_sensor_id, event_time, value, unit, anomaly_score, anomaly_level, rolling_average, z_score, rate_of_change, explanation, updated_at",
@@ -422,6 +465,7 @@ def api_overview(cluster_id: str | None = None):
         "latest_metric": metrics,
         "latest_readings": latest,
         "latest_ai": latest_ai,
+        "latest_ml_prediction": latest_ml_prediction,
         "recent_alerts": recent_alerts[:20],
     }
 
@@ -538,6 +582,34 @@ def api_ai_insights(
     )
     rows.reverse()
     return {"sensor_id": sensor_id, "bucket_date": day.isoformat(), "items": rows}
+
+
+@app.get("/api/ml-predictions")
+def api_ml_predictions(
+    location_id: str = DEFAULT_LOCATION_ID,
+    prediction_date: str | None = None,
+    limit: int = Query(default=160, ge=1, le=500),
+):
+    day = parse_day(prediction_date)
+    limit = clamp_limit(limit)
+    rows = query_rows(
+        f"""
+        SELECT location_id, prediction_date, prediction_time, forecast_horizon_minutes,
+               risk_score, risk_level, predicted_event_type, class_probabilities,
+               explanation, model_name, model_version, computed_at
+        FROM ml_predictions_by_location_minute
+        WHERE location_id = %s AND prediction_date = %s
+        LIMIT {limit}
+        """,
+        (location_id, day),
+    )
+    rows.reverse()
+    return {
+        "location_id": location_id,
+        "prediction_date": day.isoformat(),
+        "latest": get_latest_ml_prediction(location_id),
+        "items": [normalize_ml_prediction(row) for row in rows],
+    }
 
 
 @app.get("/api/performance")

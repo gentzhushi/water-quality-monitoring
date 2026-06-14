@@ -1,0 +1,289 @@
+{
+  "trained_at": "2026-06-14T17:07:19.184926+00:00",
+  "model_version": "synthetic-rf-v1",
+  "model_type": "RandomForestClassifier",
+  "model_path": "/workspace/src/ml/artifacts/early_warning_random_forest.joblib",
+  "feature_schema_path": "/workspace/src/ml/artifacts/feature_schema.json",
+  "training_rows": 56160,
+  "test_rows": 14040,
+  "accuracy": 0.9424,
+  "macro_f1": 0.9407,
+  "per_class_metrics": {
+    "chemical_shift": {
+      "precision": 0.9807852965747702,
+      "recall": 0.9536961819658814,
+      "f1-score": 0.9670510708401977,
+      "support": 1231.0
+    },
+    "gradual_degradation": {
+      "precision": 0.9932546374367622,
+      "recall": 0.9401436552274541,
+      "f1-score": 0.965969659696597,
+      "support": 1253.0
+    },
+    "normal": {
+      "precision": 0.907391250155802,
+      "recall": 0.9929078014184397,
+      "f1-score": 0.9482253337675024,
+      "support": 7332.0
+    },
+    "oxygen_depletion": {
+      "precision": 0.9842105263157894,
+      "recall": 0.9973333333333333,
+      "f1-score": 0.9907284768211919,
+      "support": 1125.0
+    },
+    "sensor_fault": {
+      "precision": 1.0,
+      "recall": 0.7757009345794392,
+      "f1-score": 0.8736842105263157,
+      "support": 1605.0
+    },
+    "storm_runoff": {
+      "precision": 0.9863891112890312,
+      "recall": 0.8246318607764391,
+      "f1-score": 0.8982865475756471,
+      "support": 1494.0
+    }
+  },
+  "confusion_matrix": {
+    "labels": [
+      "chemical_shift",
+      "gradual_degradation",
+      "normal",
+      "oxygen_depletion",
+      "sensor_fault",
+      "storm_runoff"
+    ],
+    "matrix": [
+      [
+        1174,
+        0,
+        57,
+        0,
+        0,
+        0
+      ],
+      [
+        3,
+        1178,
+        66,
+        0,
+        0,
+        6
+      ],
+      [
+        20,
+        3,
+        7280,
+        18,
+        0,
+        11
+      ],
+      [
+        0,
+        0,
+        3,
+        1122,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        360,
+        0,
+        1245,
+        0
+      ],
+      [
+        0,
+        5,
+        257,
+        0,
+        0,
+        1232
+      ]
+    ]
+  },
+  "top_feature_importances": [
+    {
+      "feature": "turbidity_latest",
+      "importance": 0.079282
+    },
+    {
+      "feature": "temperature_mean_5m",
+      "importance": 0.073162
+    },
+    {
+      "feature": "conductivity_latest",
+      "importance": 0.072472
+    },
+    {
+      "feature": "conductivity_mean_5m",
+      "importance": 0.065708
+    },
+    {
+      "feature": "dissolved_oxygen_latest",
+      "importance": 0.062161
+    },
+    {
+      "feature": "ph_mean_5m",
+      "importance": 0.059706
+    },
+    {
+      "feature": "dissolved_oxygen_mean_5m",
+      "importance": 0.058894
+    },
+    {
+      "feature": "turbidity_mean_5m",
+      "importance": 0.055967
+    },
+    {
+      "feature": "ph_latest",
+      "importance": 0.055824
+    },
+    {
+      "feature": "temperature_latest",
+      "importance": 0.051569
+    },
+    {
+      "feature": "avg_threshold_distance",
+      "importance": 0.040415
+    },
+    {
+      "feature": "max_threshold_distance",
+      "importance": 0.036365
+    },
+    {
+      "feature": "turbidity_slope_5m",
+      "importance": 0.033292
+    },
+    {
+      "feature": "orp_mean_5m",
+      "importance": 0.031972
+    },
+    {
+      "feature": "turbidity_std_5m",
+      "importance": 0.031424
+    },
+    {
+      "feature": "orp_latest",
+      "importance": 0.026072
+    },
+    {
+      "feature": "critical_count_5m",
+      "importance": 0.025954
+    },
+    {
+      "feature": "turbidity_threshold_distance",
+      "importance": 0.025281
+    },
+    {
+      "feature": "ph_std_5m",
+      "importance": 0.020364
+    },
+    {
+      "feature": "warning_count_5m",
+      "importance": 0.016815
+    }
+  ],
+  "example_predictions": [
+    {
+      "risk_score": 0.3178,
+      "risk_level": "LOW",
+      "predicted_event_type": "none",
+      "class_probabilities": {
+        "chemical_shift": 0.0209,
+        "gradual_degradation": 0.0245,
+        "normal": 0.6822,
+        "oxygen_depletion": 0.0008,
+        "sensor_fault": 0.155,
+        "storm_runoff": 0.1165
+      },
+      "expected_class": "normal",
+      "run_id": "normal_000",
+      "minute": 5
+    },
+    {
+      "risk_score": 0.3201,
+      "risk_level": "LOW",
+      "predicted_event_type": "none",
+      "class_probabilities": {
+        "chemical_shift": 0.0221,
+        "gradual_degradation": 0.0278,
+        "normal": 0.6799,
+        "oxygen_depletion": 0.001,
+        "sensor_fault": 0.1547,
+        "storm_runoff": 0.1145
+      },
+      "expected_class": "storm_runoff",
+      "run_id": "storm_runoff_000",
+      "minute": 24
+    },
+    {
+      "risk_score": 0.9453,
+      "risk_level": "CRITICAL",
+      "predicted_event_type": "oxygen_depletion",
+      "class_probabilities": {
+        "chemical_shift": 0.0,
+        "gradual_degradation": 0.0003,
+        "normal": 0.0547,
+        "oxygen_depletion": 0.9442,
+        "sensor_fault": 0.0005,
+        "storm_runoff": 0.0003
+      },
+      "expected_class": "oxygen_depletion",
+      "run_id": "oxygen_depletion_000",
+      "minute": 45
+    },
+    {
+      "risk_score": 0.9524,
+      "risk_level": "CRITICAL",
+      "predicted_event_type": "chemical_shift",
+      "class_probabilities": {
+        "chemical_shift": 0.9407,
+        "gradual_degradation": 0.006,
+        "normal": 0.0476,
+        "oxygen_depletion": 0.0,
+        "sensor_fault": 0.0045,
+        "storm_runoff": 0.0012
+      },
+      "expected_class": "chemical_shift",
+      "run_id": "chemical_shift_000",
+      "minute": 42
+    },
+    {
+      "risk_score": 0.3192,
+      "risk_level": "LOW",
+      "predicted_event_type": "none",
+      "class_probabilities": {
+        "chemical_shift": 0.0217,
+        "gradual_degradation": 0.0246,
+        "normal": 0.6808,
+        "oxygen_depletion": 0.0011,
+        "sensor_fault": 0.1551,
+        "storm_runoff": 0.1167
+      },
+      "expected_class": "sensor_fault",
+      "run_id": "sensor_fault_000",
+      "minute": 25
+    },
+    {
+      "risk_score": 0.3204,
+      "risk_level": "LOW",
+      "predicted_event_type": "none",
+      "class_probabilities": {
+        "chemical_shift": 0.0211,
+        "gradual_degradation": 0.0237,
+        "normal": 0.6796,
+        "oxygen_depletion": 0.0009,
+        "sensor_fault": 0.157,
+        "storm_runoff": 0.1178
+      },
+      "expected_class": "gradual_degradation",
+      "run_id": "gradual_degradation_000",
+      "minute": 36
+    }
+  ]
+}

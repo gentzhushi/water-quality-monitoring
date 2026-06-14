@@ -204,7 +204,9 @@
         }
 
         .status.WARNING,
-        .status.WATCH {
+        .status.WATCH,
+        .status.MEDIUM,
+        .status.HIGH {
             background: #fff3d6;
             color: var(--amber);
         }
@@ -282,6 +284,30 @@
         .muted { color: var(--muted); }
         .strong { font-weight: 700; }
 
+        .prediction-detail {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(130px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+            font-size: 13px;
+        }
+
+        .prediction-detail div {
+            border-top: 1px solid var(--line);
+            padding-top: 9px;
+        }
+
+        .prediction-detail span {
+            display: block;
+            color: var(--muted);
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+
+        .spaced-card {
+            margin-top: 14px;
+        }
+
         @media (max-width: 980px) {
             .app { grid-template-columns: 1fr; }
             .sidebar { position: static; }
@@ -302,6 +328,7 @@
             <button data-view="readings">Readings</button>
             <button data-view="alarms">Alarms</button>
             <button data-view="ai">AI Insights</button>
+            <button data-view="predictions">Predictions</button>
             <button data-view="performance">Performance</button>
         </nav>
     </aside>
@@ -375,6 +402,24 @@
             </div>
         </section>
 
+        <section id="predictions" class="view">
+            <div class="grid two-col">
+                <div class="card">
+                    <h3>Early-Warning Risk</h3>
+                    <div class="chart-box"><canvas id="prediction-chart"></canvas></div>
+                    <div id="prediction-latest" class="note"></div>
+                </div>
+                <div class="card">
+                    <h3>Class Probabilities</h3>
+                    <div id="prediction-probabilities"></div>
+                </div>
+            </div>
+            <div class="card spaced-card">
+                <h3>Prediction History</h3>
+                <div id="prediction-table"></div>
+            </div>
+        </section>
+
         <section id="performance" class="view">
             <div class="grid two-col">
                 <div class="card">
@@ -408,6 +453,7 @@ const titles = {
     readings: 'Readings',
     alarms: 'Alarms',
     ai: 'AI Insights',
+    predictions: 'Predictions',
     performance: 'Performance'
 };
 
@@ -426,6 +472,26 @@ function fmt(value, digits = 2) {
 function fmtTime(value) {
     if (!value) return '—';
     return new Date(value).toLocaleTimeString();
+}
+
+function readableEvent(value) {
+    if (!value || value === 'none') return 'None';
+    return String(value).replaceAll('_', ' ');
+}
+
+function isTimestampValue(value) {
+    const text = String(value || '');
+    return /^\d{4}-\d{2}-\d{2}T/.test(text) && !Number.isNaN(Date.parse(text));
+}
+
+function modelVersionLabel(value) {
+    return isTimestampValue(value) ? 'Trained at' : 'Model version';
+}
+
+function formatModelVersion(value) {
+    if (!value) return 'N/A';
+    if (!isTimestampValue(value)) return value;
+    return `${new Date(value).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 }
 
 function todayIso() {
@@ -589,6 +655,8 @@ async function loadClusters() {
 async function loadOverview() {
     const data = await getJson(withQuery('/api/overview', { cluster_id: state.clusterId }));
     const metric = data.latest_metric || {};
+    const ml = data.latest_ml_prediction;
+    const mlRisk = ml ? `${statusPill(ml.risk_level)} ${fmt(ml.risk_score)}` : 'Waiting for model';
     const parameterKpis = (data.parameter_averages || []).map(item => [
         `Avg ${item.display_name || item.parameter}`,
         `${fmt(item.average_value)}${item.unit ? ` ${item.unit}` : ''}`
@@ -597,6 +665,7 @@ async function loadOverview() {
         ['System Status', statusPill(data.system_status)],
         ['Active Sensors', fmt(data.active_sensor_count, 0)],
         ['Recent Alert Events', fmt(data.active_alert_count, 0)],
+        ['Predictive Risk', mlRisk],
         ...parameterKpis,
         ['Avg Latency', `${fmt(metric.avg_event_latency_ms, 0)} ms`],
     ].map(([label, value]) => `
@@ -745,6 +814,84 @@ async function loadAi() {
     ], rows.slice(-20).reverse());
 }
 
+function probabilityRows(probabilities) {
+    const preferredOrder = [
+        'normal',
+        'storm_runoff',
+        'oxygen_depletion',
+        'chemical_shift',
+        'sensor_fault',
+        'gradual_degradation'
+    ];
+    const keys = Object.keys(probabilities || {});
+    const ordered = [
+        ...preferredOrder.filter(key => keys.includes(key)),
+        ...keys.filter(key => !preferredOrder.includes(key)).sort()
+    ];
+
+    return ordered.map(key => ({
+        class_name: readableEvent(key),
+        probability: probabilities[key]
+    }));
+}
+
+function renderLatestPrediction(prediction) {
+    if (!prediction) {
+        showEmpty('prediction-latest', 'No ML prediction available yet.');
+        showEmpty('prediction-probabilities', 'No class probabilities available yet.');
+        return;
+    }
+
+    document.getElementById('prediction-latest').innerHTML = `
+        <div>${statusPill(prediction.risk_level)} ${esc(prediction.explanation || '')}</div>
+        <div class="prediction-detail">
+            <div><span>Risk score</span>${fmt(prediction.risk_score)}</div>
+            <div><span>Predicted event</span>${esc(readableEvent(prediction.predicted_event_type))}</div>
+            <div><span>Forecast horizon</span>${fmt(prediction.forecast_horizon_minutes, 0)} minutes</div>
+            <div><span>Prediction time</span>${fmtTime(prediction.prediction_time)}</div>
+            <div><span>Model</span>${esc(prediction.model_name || '')}</div>
+            <div><span>${esc(modelVersionLabel(prediction.model_version))}</span>${esc(formatModelVersion(prediction.model_version))}</div>
+        </div>
+    `;
+
+    renderTable('prediction-probabilities', [
+        { label: 'Class', key: 'class_name' },
+        { label: 'Probability', render: row => `${fmt(row.probability * 100)}%` },
+    ], probabilityRows(prediction.class_probabilities));
+}
+
+async function loadPredictions() {
+    const day = document.getElementById('date-input').value || todayIso();
+    const data = await getJson(`/api/ml-predictions?location_id=${encodeURIComponent(state.locationId)}&prediction_date=${day}&limit=160`);
+    const rows = data.items || [];
+
+    renderLatestPrediction(data.latest);
+
+    if (!rows.length) {
+        destroyChart('prediction-chart');
+        showEmpty('prediction-table', 'No prediction history available for this date yet.');
+        return;
+    }
+
+    drawLineChart('prediction-chart', rows.map(row => fmtTime(row.prediction_time)), [
+        {
+            label: 'Risk score',
+            data: rows.map(row => row.risk_score),
+            borderColor: '#b42318',
+            backgroundColor: '#b4231820',
+            tension: .25
+        }
+    ]);
+
+    renderTable('prediction-table', [
+        { label: 'Time', render: row => fmtTime(row.prediction_time) },
+        { label: 'Risk', key: 'risk_level' },
+        { label: 'Score', render: row => fmt(row.risk_score) },
+        { label: 'Predicted Event', render: row => readableEvent(row.predicted_event_type) },
+        { label: 'Horizon', render: row => `${fmt(row.forecast_horizon_minutes, 0)} min` },
+    ], rows.slice(-30).reverse());
+}
+
 async function loadPerformance() {
     const day = document.getElementById('date-input').value || todayIso();
     const data = await getJson(withQuery('/api/performance', {
@@ -786,6 +933,7 @@ async function refreshCurrentView() {
         if (state.view === 'readings') await loadReadings();
         if (state.view === 'alarms') await loadAlarms();
         if (state.view === 'ai') await loadAi();
+        if (state.view === 'predictions') await loadPredictions();
         if (state.view === 'performance') await loadPerformance();
         setUpdated();
     } catch (error) {

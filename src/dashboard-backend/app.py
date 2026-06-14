@@ -18,6 +18,7 @@ CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
 DEFAULT_LOCATION_ID = os.getenv("DEFAULT_LOCATION_ID", "demo_location_01")
+DEFAULT_LOCATION_NAME = os.getenv("DEFAULT_LOCATION_NAME", "Demo Lake 01")
 
 app = FastAPI(title="Water Quality Digital Twin Dashboard")
 templates = Jinja2Templates(directory="templates")
@@ -103,7 +104,7 @@ def query_rows(statement: str, params: tuple = ()) -> list[dict[str, Any]]:
 
 
 def get_sensors(location_id: str = DEFAULT_LOCATION_ID) -> list[dict[str, Any]]:
-    return query_rows(
+    metadata_rows = query_rows(
         """
         SELECT location_id, location_name, sensor_id, sensor_type, parameter, unit, status, last_seen_at
         FROM sensors_by_location
@@ -111,6 +112,34 @@ def get_sensors(location_id: str = DEFAULT_LOCATION_ID) -> list[dict[str, Any]]:
         """,
         (location_id,),
     )
+    sensors_by_id = {row["sensor_id"]: row for row in metadata_rows}
+
+    latest_rows = query_rows(
+        """
+        SELECT location_id, parameter, sensor_id, event_time, value, unit, quality_status, updated_at
+        FROM latest_readings_by_location
+        WHERE location_id = %s
+        """,
+        (location_id,),
+    )
+
+    for row in latest_rows:
+        existing = sensors_by_id.get(row["sensor_id"])
+        if existing is None:
+            sensors_by_id[row["sensor_id"]] = {
+                "location_id": row["location_id"],
+                "location_name": DEFAULT_LOCATION_NAME,
+                "sensor_id": row["sensor_id"],
+                "sensor_type": row["parameter"],
+                "parameter": row["parameter"],
+                "unit": row["unit"],
+                "status": "active",
+                "last_seen_at": row["event_time"],
+            }
+        elif row.get("event_time"):
+            existing["last_seen_at"] = row["event_time"]
+
+    return sorted(sensors_by_id.values(), key=lambda row: row["sensor_id"])
 
 
 def get_first_sensor_id(location_id: str = DEFAULT_LOCATION_ID) -> str | None:

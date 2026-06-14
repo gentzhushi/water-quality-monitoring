@@ -1,8 +1,21 @@
 from   argparse import ArgumentParser, Namespace
 import asyncio
 import httpx
+import os
 import random
 from   typing   import Any
+
+
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+ANOMALY_PROBABILITY = env_float("ANOMALY_PROBABILITY", 0.12)
+ANOMALY_MARGIN_MIN_RATIO = env_float("ANOMALY_MARGIN_MIN_RATIO", 0.08)
+ANOMALY_MARGIN_MAX_RATIO = env_float("ANOMALY_MARGIN_MAX_RATIO", 0.35)
 
 
 class Sensor:
@@ -40,7 +53,24 @@ class Sensor:
         if self.min is None or self.max is None:
             return None
 
-        return ((self.max - self.min) * random.random()) + self.min
+        low = min(self.min, self.max)
+        high = max(self.min, self.max)
+        span = max(high - low, 1.0)
+
+        if random.random() < ANOMALY_PROBABILITY:
+            direction = 1 if low <= 0 else random.choice([-1, 1])
+            margin = span * random.uniform(
+                ANOMALY_MARGIN_MIN_RATIO,
+                ANOMALY_MARGIN_MAX_RATIO,
+            )
+            value = high + margin if direction > 0 else low - margin
+        else:
+            value = ((high - low) * random.random()) + low
+
+        if low >= 0:
+            value = max(0.0, value)
+
+        return round(value, 3)
 
 
 class SensorCluster:

@@ -17,11 +17,12 @@ cd src
 docker compose up -d --build
 ```
 
-This starts the existing Flask/sensor services, Kafka, Cassandra, and a small Spark standalone cluster:
+This starts the sensor control panel, sensor-cluster simulators, Kafka, Cassandra, and a small Spark standalone cluster:
 
 ```text
-mock-producer -> Kafka topic water-quality-readings -> Spark master/worker cluster -> Cassandra
-                                                         -> Kafka water-quality-alerts -> notification-service
+sensor-cluster -> sensor-server/control panel -> Kafka topic water-quality-readings
+                                                     -> Spark master/worker cluster -> Cassandra
+                                                     -> Kafka water-quality-alerts -> notification-service
 ```
 
 The Cassandra schema and Spark streaming job start automatically. No manual `cqlsh` or `spark-submit` command is needed for the normal demo.
@@ -30,7 +31,7 @@ The notification service also starts automatically. By default it runs in dry-ru
 
 ## Services
 
-- Flask server: http://localhost:8000
+- Sensor control panel: http://localhost/control-panel
 - Digital Twin dashboard: http://localhost:8001/digital-twin
 - Digital Twin API docs: http://localhost:8001/docs
 - Kafka UI: http://localhost:8080
@@ -80,14 +81,14 @@ docker exec -it spark-master /opt/spark/bin/spark-submit `
 
 ## Kafka/Spark topics
 
-- `water-quality-readings`: fake readings produced by `mock-producer`
+- `water-quality-readings`: readings produced by the sensor control panel through `sensor-server`
 - `water-quality-alerts`: enriched abnormal-reading alerts detected by Spark and consumed by `notification-service`
 
 Current reading message format:
 
 ```json
 {
-  "sensor_id": "mock_sensor_01",
+  "sensor_id": "C1S001",
   "sensor_type": "pH",
   "value": 8.9,
   "timestamp": "2026-06-09T21:37:59Z"
@@ -96,7 +97,7 @@ Current reading message format:
 
 Spark treats `sensor_id`, `sensor_type`, `value`, and `timestamp` as required fields.
 
-The mock producer sends pH, temperature, turbidity, conductivity, dissolved oxygen, and ORP messages every 1-2 seconds. It intentionally includes normal and abnormal values so Spark can create alerts.
+The control panel starts with six configured sensors in cluster `C1`: pH, temperature, turbidity, conductivity, dissolved oxygen, and ORP. The sensor-cluster simulator generates mostly normal values with occasional controlled abnormal values so Spark can create alerts, anomaly scores, and notification events during a demo.
 
 Alert thresholds are demo rules stored in Cassandra table `parameter_rules_by_parameter`. They are used by Spark for generic low/high alerting and explainable anomaly scores, and they are not official water-quality standards. The seeded demo parameters are:
 
@@ -161,7 +162,7 @@ If `NOTIFICATION_DRY_RUN=true`, alert messages are logged instead of being sent 
 
 1. Open http://localhost:8080.
 2. Select the `local` Kafka cluster.
-3. Open the `water-quality-readings` topic and confirm messages are arriving.
+3. Open the `water-quality-readings` topic and confirm messages are arriving from sensor ids such as `C1S001`.
 4. Open the `water-quality-alerts` topic and confirm Spark is writing alert messages when abnormal values appear.
 5. Check `docker compose logs -f notification-service` and confirm the notification service logs dry-run emails, dry-run Telegram alerts, or send results.
 
@@ -169,7 +170,7 @@ To manually test Spark, use Kafka UI to produce this message to `water-quality-r
 
 ```json
 {
-  "sensor_id": "mock_sensor_03",
+  "sensor_id": "C1S003",
   "sensor_type": "turbidity",
   "value": 24,
   "timestamp": "2026-06-07T12:00:00Z"
@@ -183,7 +184,8 @@ Expected result: Spark writes a `HIGH_TURBIDITY` alert to `water-quality-alerts`
 From `src`:
 
 ```sh
-docker compose logs -f mock-producer
+docker compose logs -f sensor-server
+docker compose logs -f sensor-cluster-1
 docker compose logs -f cassandra
 docker compose logs -f spark-master
 docker compose logs -f spark-worker
@@ -212,6 +214,10 @@ AI scores are explainable statistical scores rather than a trained ML model. Spa
 
 The final anomaly level is `NORMAL`, `WATCH`, `WARNING`, or `CRITICAL`. A configured rule breach is always raised to at least `WARNING`, and a configured critical breach is raised to `CRITICAL`, so the dashboard label matches the explanation shown to the user.
 
-## Later integration
+## Optional mock producer
 
-The Kafka/Spark path is intentionally separate from the existing sensor-to-Flask flow. Later, the real sensor generator can replace `mock-producer`, or the Flask server can be extended to publish received measurements into Kafka before Spark processes them.
+The old mock producer is kept for isolated Kafka/Spark testing, but it is not part of the default demo. Start it only when needed:
+
+```sh
+docker compose --profile mock up -d --build mock-producer
+```

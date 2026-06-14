@@ -321,12 +321,12 @@ INSERT INTO parameter_rules_by_parameter (
     'ORP', 'ORP', 'mV', 150.0, 500.0, 50.0, 700.0, 200.0, 100.0, true
 ) IF NOT EXISTS;
 
--- Demo metadata for the current mock producer messages.
+-- Default metadata for the control-panel sensor cluster.
 INSERT INTO sensors_by_id (
     sensor_id, location_id, location_name, sensor_type, parameter, unit,
     status, installed_at, last_seen_at
 ) VALUES (
-    'mock_sensor_01', 'demo_location_01', 'Demo Lake 01', 'pH', 'pH',
+    'C1S001', 'demo_location_01', 'Demo Lake 01', 'pH', 'pH',
     'pH', 'active', toTimestamp(now()), toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -334,7 +334,7 @@ INSERT INTO sensors_by_id (
     sensor_id, location_id, location_name, sensor_type, parameter, unit,
     status, installed_at, last_seen_at
 ) VALUES (
-    'mock_sensor_02', 'demo_location_01', 'Demo Lake 01', 'temperature',
+    'C1S002', 'demo_location_01', 'Demo Lake 01', 'temperature',
     'temperature', 'C', 'active', toTimestamp(now()), toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -342,7 +342,7 @@ INSERT INTO sensors_by_id (
     sensor_id, location_id, location_name, sensor_type, parameter, unit,
     status, installed_at, last_seen_at
 ) VALUES (
-    'mock_sensor_03', 'demo_location_01', 'Demo Lake 01', 'turbidity',
+    'C1S003', 'demo_location_01', 'Demo Lake 01', 'turbidity',
     'turbidity', 'NTU', 'active', toTimestamp(now()), toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -350,7 +350,7 @@ INSERT INTO sensors_by_id (
     sensor_id, location_id, location_name, sensor_type, parameter, unit,
     status, installed_at, last_seen_at
 ) VALUES (
-    'mock_sensor_04', 'demo_location_01', 'Demo Lake 01', 'conductivity',
+    'C1S004', 'demo_location_01', 'Demo Lake 01', 'conductivity',
     'conductivity', 'uS/cm', 'active', toTimestamp(now()), toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -358,7 +358,7 @@ INSERT INTO sensors_by_id (
     sensor_id, location_id, location_name, sensor_type, parameter, unit,
     status, installed_at, last_seen_at
 ) VALUES (
-    'mock_sensor_05', 'demo_location_01', 'Demo Lake 01', 'dissolved_oxygen',
+    'C1S005', 'demo_location_01', 'Demo Lake 01', 'dissolved_oxygen',
     'dissolved_oxygen', 'mg/L', 'active', toTimestamp(now()), toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -366,7 +366,7 @@ INSERT INTO sensors_by_id (
     sensor_id, location_id, location_name, sensor_type, parameter, unit,
     status, installed_at, last_seen_at
 ) VALUES (
-    'mock_sensor_06', 'demo_location_01', 'Demo Lake 01', 'ORP', 'ORP',
+    'C1S006', 'demo_location_01', 'Demo Lake 01', 'ORP', 'ORP',
     'mV', 'active', toTimestamp(now()), toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -374,7 +374,7 @@ INSERT INTO sensors_by_location (
     location_id, location_name, sensor_id, sensor_type, parameter, unit,
     status, last_seen_at
 ) VALUES (
-    'demo_location_01', 'Demo Lake 01', 'mock_sensor_01', 'pH', 'pH',
+    'demo_location_01', 'Demo Lake 01', 'C1S001', 'pH', 'pH',
     'pH', 'active', toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -382,7 +382,7 @@ INSERT INTO sensors_by_location (
     location_id, location_name, sensor_id, sensor_type, parameter, unit,
     status, last_seen_at
 ) VALUES (
-    'demo_location_01', 'Demo Lake 01', 'mock_sensor_02', 'temperature',
+    'demo_location_01', 'Demo Lake 01', 'C1S002', 'temperature',
     'temperature', 'C', 'active', toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -390,7 +390,7 @@ INSERT INTO sensors_by_location (
     location_id, location_name, sensor_id, sensor_type, parameter, unit,
     status, last_seen_at
 ) VALUES (
-    'demo_location_01', 'Demo Lake 01', 'mock_sensor_03', 'turbidity',
+    'demo_location_01', 'Demo Lake 01', 'C1S003', 'turbidity',
     'turbidity', 'NTU', 'active', toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -398,7 +398,7 @@ INSERT INTO sensors_by_location (
     location_id, location_name, sensor_id, sensor_type, parameter, unit,
     status, last_seen_at
 ) VALUES (
-    'demo_location_01', 'Demo Lake 01', 'mock_sensor_04', 'conductivity',
+    'demo_location_01', 'Demo Lake 01', 'C1S004', 'conductivity',
     'conductivity', 'uS/cm', 'active', toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -406,7 +406,7 @@ INSERT INTO sensors_by_location (
     location_id, location_name, sensor_id, sensor_type, parameter, unit,
     status, last_seen_at
 ) VALUES (
-    'demo_location_01', 'Demo Lake 01', 'mock_sensor_05', 'dissolved_oxygen',
+    'demo_location_01', 'Demo Lake 01', 'C1S005', 'dissolved_oxygen',
     'dissolved_oxygen', 'mg/L', 'active', toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -414,7 +414,7 @@ INSERT INTO sensors_by_location (
     location_id, location_name, sensor_id, sensor_type, parameter, unit,
     status, last_seen_at
 ) VALUES (
-    'demo_location_01', 'Demo Lake 01', 'mock_sensor_06', 'ORP', 'ORP',
+    'demo_location_01', 'Demo Lake 01', 'C1S006', 'ORP', 'ORP',
     'mV', 'active', toTimestamp(now())
 ) IF NOT EXISTS;
 
@@ -432,3 +432,45 @@ CREATE TABLE IF NOT EXISTS sensor_configs_by_cluster (
     updated_at timestamp,
     PRIMARY KEY ((cluster_id), sensor_id)
 );
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id, sensor_id, min, max, sensor_type, unit, measure_interval_s,
+    config_interval_s, updated_at
+) VALUES (
+    'C1', 'S001', 6.5, 8.5, 'pH', 'pH', 2, 10, toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id, sensor_id, min, max, sensor_type, unit, measure_interval_s,
+    config_interval_s, updated_at
+) VALUES (
+    'C1', 'S002', 0.0, 35.0, 'temperature', 'C', 4, 10, toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id, sensor_id, min, max, sensor_type, unit, measure_interval_s,
+    config_interval_s, updated_at
+) VALUES (
+    'C1', 'S003', 0.0, 5.0, 'turbidity', 'NTU', 3, 10, toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id, sensor_id, min, max, sensor_type, unit, measure_interval_s,
+    config_interval_s, updated_at
+) VALUES (
+    'C1', 'S004', 50.0, 1500.0, 'conductivity', 'uS/cm', 5, 10, toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id, sensor_id, min, max, sensor_type, unit, measure_interval_s,
+    config_interval_s, updated_at
+) VALUES (
+    'C1', 'S005', 5.0, 14.0, 'dissolved_oxygen', 'mg/L', 4, 10, toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id, sensor_id, min, max, sensor_type, unit, measure_interval_s,
+    config_interval_s, updated_at
+) VALUES (
+    'C1', 'S006', 150.0, 500.0, 'ORP', 'mV', 5, 10, toTimestamp(now())
+) IF NOT EXISTS;

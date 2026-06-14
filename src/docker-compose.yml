@@ -4,6 +4,7 @@ services:
       context: ./sensor-cluster/
     environment:
       - PYTHONUNBUFFERED=1
+      - ANOMALY_PROBABILITY=0.12
     command:
       - --cluster-id=C1
       - --base-url=http://sensor-server
@@ -17,6 +18,7 @@ services:
       context: ./sensor-cluster/
     environment:
       - PYTHONUNBUFFERED=1
+      - ANOMALY_PROBABILITY=0.12
     command:
       - --cluster-id=C2
       - --base-url=http://sensor-server
@@ -32,6 +34,9 @@ services:
       - PYTHONUNBUFFERED=1
       - CASSANDRA_HOST=cassandra
       - CASSANDRA_KEYSPACE=water_quality
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=water-quality-readings
+      - KAFKA_ENABLED=true
     ports:
       - "80:80"
     healthcheck:
@@ -41,6 +46,8 @@ services:
       retries: 3
       start_period: 0s
     depends_on:
+      kafka:
+        condition: service_healthy
       cassandra:
         condition: service_healthy
 
@@ -53,6 +60,7 @@ services:
       - CASSANDRA_PORT=9042
       - CASSANDRA_KEYSPACE=water_quality
       - DEFAULT_LOCATION_ID=demo_location_01
+      - DEFAULT_LOCATION_NAME=Demo Lake 01
     ports:
       - "8001:80"
     depends_on:
@@ -98,6 +106,8 @@ services:
       - DYNAMIC_CONFIG_ENABLED=true
 
   mock-producer:
+    profiles:
+      - mock
     build:
       context: ./mock-producer
     depends_on:
@@ -148,6 +158,8 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - CASSANDRA_HOST=cassandra
       - CASSANDRA_PORT=9042
+      - DEFAULT_LOCATION_ID=demo_location_01
+      - DEFAULT_LOCATION_NAME=Demo Lake 01
     ports:
       - "7077:7077"
       - "8081:8080"

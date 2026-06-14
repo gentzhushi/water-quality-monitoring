@@ -1,12 +1,25 @@
+import json
+import os
 import re
+from datetime import UTC, datetime
 from typing import Any
 
+from confluent_kafka import Producer
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "water-quality-readings")
+KAFKA_ENABLED = os.getenv("KAFKA_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -25,9 +38,61 @@ class MeasurementPayload(BaseModel):
     sensor_id: str
     sensor_type: str
     value: float | None = None
+    timestamp: str | None = None
 
 
 DATA: list[dict[str, Any]] = []
+producer: Producer | None = None
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def delivery_report(error, message) -> None:
+    if error is not None:
+        print(f"Failed to deliver sensor reading to Kafka: {error}", flush=True)
+
+
+def create_kafka_producer() -> Producer | None:
+    if not KAFKA_ENABLED:
+        print("Kafka publishing is disabled for sensor-server.", flush=True)
+        return None
+
+    return Producer(
+        {
+            "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+            "client.id": "water-quality-sensor-server",
+        }
+    )
+
+
+def publish_reading(reading: dict[str, Any]) -> bool:
+    if producer is None or reading.get("value") is None:
+        return False
+
+    try:
+        producer.produce(
+            KAFKA_TOPIC,
+            key=reading["sensor_id"],
+            value=json.dumps(reading),
+            callback=delivery_report,
+        )
+        producer.poll(0)
+        return True
+    except BufferError:
+        producer.poll(1)
+        producer.produce(
+            KAFKA_TOPIC,
+            key=reading["sensor_id"],
+            value=json.dumps(reading),
+            callback=delivery_report,
+        )
+        producer.poll(0)
+        return True
+    except Exception as exc:
+        print(f"Failed to queue sensor reading for Kafka: {exc}", flush=True)
+        return False
 
 
 SENSOR_CONFIGS: dict[str, dict[str, SensorConfigPayload]] = {
@@ -79,10 +144,26 @@ SENSOR_CONFIGS: dict[str, dict[str, SensorConfigPayload]] = {
 }
 
 
+@app.on_event("startup")
+def startup() -> None:
+    global producer
+    producer = create_kafka_producer()
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    if producer is not None:
+        producer.flush(5)
+
+
 @app.post("/sensor-measurement")
 async def post_measurement(payload: MeasurementPayload):
-    DATA.append(payload.model_dump())
-    return {"status": "ok"}
+    reading = payload.model_dump()
+    reading["timestamp"] = reading["timestamp"] or utc_now()
+
+    DATA.append(reading)
+    published = publish_reading(reading)
+    return {"status": "ok", "published_to_kafka": published}
 
 
 @app.get("/sensors-by-cluster/{cluster_id}")

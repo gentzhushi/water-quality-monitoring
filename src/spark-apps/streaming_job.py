@@ -46,7 +46,9 @@ ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "water-quality-alerts")
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = os.getenv("CASSANDRA_PORT", "9042")
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
-CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v4"
+DEFAULT_LOCATION_ID = os.getenv("DEFAULT_LOCATION_ID", "demo_location_01")
+DEFAULT_LOCATION_NAME = os.getenv("DEFAULT_LOCATION_NAME", "Demo Lake 01")
+CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v5"
 DEFAULT_THRESHOLD_SCALE = 1.0
 DEFAULT_RATE_CHANGE_SCALE = 1.0
 
@@ -568,14 +570,15 @@ abnormal_reading = below_normal | above_normal
 
 # Enrich valid readings and prepare Cassandra columns
 processed_readings = (
-    valid_readings.join(sensor_metadata, "sensor_id", "inner")
+    valid_readings.join(sensor_metadata, "sensor_id", "left")
+    .withColumn("location_id", coalesce(col("location_id"), lit(DEFAULT_LOCATION_ID)))
+    .withColumn("location_name", coalesce(col("location_name"), lit(DEFAULT_LOCATION_NAME)))
     .withColumn("parameter", coalesce(col("parameter"), col("sensor_type")))
     .join(parameter_rules, col("parameter") == col("rule_parameter"), "left")
-    .where(col("location_id").isNotNull())
     .where(col("parameter").isNotNull())
     .withColumn("rule_enabled", coalesce(col("enabled"), lit(False)))
     .withColumn("display_name", coalesce(col("display_name"), col("parameter")))
-    .withColumn("unit", coalesce(col("unit"), col("rule_unit")))
+    .withColumn("unit", coalesce(col("unit"), col("rule_unit"), lit("")))
     .withColumn("bucket_date", to_date(col("event_time")))
     .withColumn("bucket_month", date_format(col("event_time"), "yyyy-MM"))
     .withColumn("bucket_year", date_format(col("event_time"), "yyyy").cast("int"))

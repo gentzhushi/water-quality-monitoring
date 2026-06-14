@@ -30,8 +30,10 @@ services:
       context: ./sensor-server
     environment:
       - PYTHONUNBUFFERED=1
+      - CASSANDRA_HOST=cassandra
+      - CASSANDRA_KEYSPACE=water_quality
     ports:
-      - "8000:80"
+      - "80:80"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
       interval: 5s

@@ -1,16 +1,22 @@
-from   fastapi            import FastAPI, HTTPException, Request
-from   fastapi.responses  import HTMLResponse
-from   fastapi.templating import Jinja2Templates
+from  cassandra.cluster  import Cluster, Session
+from  datetime           import UTC, datetime
+from  fastapi            import FastAPI, HTTPException, Request
+from  fastapi.responses  import HTMLResponse
+from  fastapi.templating import Jinja2Templates
+from  functools          import lru_cache
+from  pydantic           import BaseModel
+from  typing             import Any, Dict, List
 import os
-from   pydantic           import BaseModel
 import re
-from   typing             import Any, Dict, List
+import time
 import uvicorn
 
 
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
+CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
-
+CASSANDRA_CONNECT_RETRIES = int(os.getenv("CASSANDRA_CONNECT_RETRIES", "12"))
+CASSANDRA_CONNECT_DELAY_SEC = float(os.getenv("CASSANDRA_CONNECT_DELAY_SEC", "5"))
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -34,42 +40,52 @@ class MeasurementPayload(BaseModel):
 DATA: List[Dict[str, Any]] = []
 
 
-SENSOR_CONFIGS: dict[str, dict[str, SensorConfigPayload]] = {
-    "C1": {
-        "S001": SensorConfigPayload(
-        min                = 1,
-        max                = 100,
-        type               = "temperature",
-        unit               = "°C",
-        measure_interval_s = 4
-        ),
-        "S002": SensorConfigPayload(
-        min                = 1,
-        max                = 14,
-        type               = "pH",
-        unit               = "pH units",
-        measure_interval_s = 2
-        )
-    },
-    "C2": {}
-}
+@lru_cache(maxsize=1)
+def get_cassandra_session() -> Session:
+    last_error: Exception | None = None
+
+    for _ in range(CASSANDRA_CONNECT_RETRIES):
+        try:
+            cluster = Cluster([CASSANDRA_HOST], port=CASSANDRA_PORT)
+            return cluster.connect(CASSANDRA_KEYSPACE)
+        except Exception as exc:
+            last_error = exc
+            time.sleep(CASSANDRA_CONNECT_DELAY_SEC)
+
+    raise RuntimeError("Could not connect to Cassandra") from last_error
 
 
 def row_to_config(row) -> SensorConfigPayload:
     return SensorConfigPayload(
-        min=row.min,
-        max=row.max,
-        type=row.sensor_type,
-        unit=row.unit,
-        measure_interval_s=row.measure_interval_s,
-        config_interval_s=row.config_interval_s,
+        min                = row.min_value,
+        max                = row.max_value,
+        type               = row.sensor_type,
+        unit               = row.unit,
+        measure_interval_s = row.measure_interval_s,
+        config_interval_s  = row.config_interval_s,
     )
 
 
+def ensure_cluster_exists(cluster_id: str) -> None:
+    get_cassandra_session().execute(
+        "INSERT INTO sensor_clusters (cluster_id) VALUES (%s)",
+        (cluster_id,),
+    )
+
+
+def cluster_exists(cluster_id: str) -> bool:
+    row = get_cassandra_session().execute(
+        "SELECT cluster_id FROM sensor_clusters WHERE cluster_id = %s",
+        (cluster_id,),
+    ).one()
+    return row is not None
+
+
 def get_cluster_configs(cluster_id: str) -> dict[str, SensorConfigPayload]:
-    rows = session.execute(
+    rows = get_cassandra_session().execute(
         """
-        SELECT sensor_id, min, max, sensor_type, unit, measure_interval_s, config_interval_s
+        SELECT sensor_id, min_value, max_value, sensor_type, unit,
+               measure_interval_s, config_interval_s
         FROM sensor_configs_by_cluster
         WHERE cluster_id = %s
         """,
@@ -79,9 +95,10 @@ def get_cluster_configs(cluster_id: str) -> dict[str, SensorConfigPayload]:
 
 
 def get_sensor_config(cluster_id: str, sensor_id: str) -> SensorConfigPayload | None:
-    row = session.execute(
+    row = get_cassandra_session().execute(
         """
-        SELECT min, max, sensor_type, unit, measure_interval_s, config_interval_s
+        SELECT min_value, max_value, sensor_type, unit,
+               measure_interval_s, config_interval_s
         FROM sensor_configs_by_cluster
         WHERE cluster_id = %s AND sensor_id = %s
         """,
@@ -90,23 +107,45 @@ def get_sensor_config(cluster_id: str, sensor_id: str) -> SensorConfigPayload | 
     return row_to_config(row) if row else None
 
 
-def save_sensor_config(cluster_id: str, sensor_id: str, cfg: SensorConfigPayload) -> None:
-    session.execute(
+def get_all_sensor_configs() -> dict[str, dict[str, SensorConfigPayload]]:
+    session = get_cassandra_session()
+    cluster_rows = session.execute("SELECT cluster_id FROM sensor_clusters")
+    configs: dict[str, dict[str, SensorConfigPayload]] = {
+        row.cluster_id: {} for row in cluster_rows
+    }
+
+    config_rows = session.execute(
+        """
+        SELECT cluster_id, sensor_id, min_value, max_value, sensor_type, unit,
+               measure_interval_s, config_interval_s
+        FROM sensor_configs_by_cluster
+        """
+    )
+    for row in config_rows:
+        configs.setdefault(row.cluster_id, {})
+        configs[row.cluster_id][row.sensor_id] = row_to_config(row)
+
+    return dict(sorted(configs.items()))
+
+
+def save_sensor_config(cluster_id: str, sensor_id: str, config: SensorConfigPayload) -> None:
+    ensure_cluster_exists(cluster_id)
+    get_cassandra_session().execute(
         """
         INSERT INTO sensor_configs_by_cluster (
-            cluster_id, sensor_id, min, max, sensor_type, unit,
+            cluster_id, sensor_id, min_value, max_value, sensor_type, unit,
             measure_interval_s, config_interval_s, updated_at
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             cluster_id,
             sensor_id,
-            cfg.min,
-            cfg.max,
-            cfg.type,
-            cfg.unit,
-            cfg.measure_interval_s,
-            cfg.config_interval_s,
+            config.min,
+            config.max,
+            config.type,
+            config.unit,
+            config.measure_interval_s,
+            config.config_interval_s,
             datetime.now(UTC),
         ),
     )
@@ -120,55 +159,57 @@ async def post_measurement(payload: MeasurementPayload):
 
 @app.get("/sensors-by-cluster/{cluster_id}")
 def get_sensors(cluster_id: str):
-    if cluster_id not in SENSOR_CONFIGS:
+    if not cluster_exists(cluster_id):
         raise HTTPException(status_code=404, detail="Cluster doesn't exist.")
 
     return [
         {
             "sensor_id": sid,
-            **cfg.model_dump()
+            **cfg.model_dump(),
         }
-        for sid, cfg in SENSOR_CONFIGS[cluster_id].items()
+        for sid, cfg in get_cluster_configs(cluster_id).items()
     ]
 
 
 def split_sensor_ref(sensor_ref: str) -> tuple[str, str]:
-    if not re.match(r'^C\dS\d{3}$', sensor_ref):
+    if not re.match(r"^C\dS\d{3}$", sensor_ref):
         raise HTTPException(status_code=400, detail="Sensor ID must match `CxSyyy`")
 
     s_index = sensor_ref.find("S")
-
     return sensor_ref[:s_index], sensor_ref[s_index:]
 
 
 @app.put("/sensors-by-id/{sid}")
 def put_config(sid: str, payload: SensorConfigPayload):
     cid, sensor_id = split_sensor_ref(sid)
-    SENSOR_CONFIGS.setdefault(cid, {})
+    existing_config = get_sensor_config(cid, sensor_id)
 
-    if sensor_id not in SENSOR_CONFIGS[cid]:
-        SENSOR_CONFIGS[cid][sensor_id] = payload
+    if existing_config is None:
+        save_sensor_config(cid, sensor_id, payload)
         return {"status": "ok"}
 
     update_data = payload.model_dump(exclude_unset=True)
-    SENSOR_CONFIGS[cid][sensor_id] = SENSOR_CONFIGS[cid][sensor_id].model_copy(update=update_data)
+    updated_config = existing_config.model_copy(update=update_data)
+    save_sensor_config(cid, sensor_id, updated_config)
     return {"status": "ok"}
 
 
 @app.get("/sensors-by-id/{sid}")
 def get_config(sid: str):
     cid, sensor_id = split_sensor_ref(sid)
-    if cid not in SENSOR_CONFIGS or sensor_id not in SENSOR_CONFIGS[cid]:
+    config = get_sensor_config(cid, sensor_id)
+    if config is None:
         raise HTTPException(status_code=404, detail="Sensor doesn't exist.")
 
-    return {"config": SENSOR_CONFIGS[cid][sensor_id]}
+    return {"config": config}
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
 @app.get("/control-panel", response_class=HTMLResponse)
 def get_dashboard(request: Request):
     context_data = {
         "request": request,
-        "sensors": SENSOR_CONFIGS
+        "sensors": get_all_sensor_configs(),
     }
 
     return templates.TemplateResponse(request, "index.html", context_data)
@@ -181,11 +222,12 @@ def dump_data():
 
 @app.get("/dump/sensor-configs")
 def dump_cfgs():
-    return {"configs": SENSOR_CONFIGS}
+    return {"configs": get_all_sensor_configs()}
 
 
 @app.get("/healthcheck")
 def get_healthcheck():
+    get_cassandra_session().execute("SELECT now() FROM system.local")
     return {"status": "ok"}
 
 

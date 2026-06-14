@@ -75,7 +75,14 @@
         }
 
         /* ── Filter bar ─────────────────────────────────── */
-        .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+        .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        .filter-summary {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+            min-height: 20px;
+        }
 
         input[type="search"] {
             flex: 1;
@@ -165,6 +172,16 @@
             background: var(--surface);
             color: var(--text-2);
         }
+        .filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            font-size: 11px;
+            border-radius: 10px;
+            background: var(--surface);
+            color: var(--text-2);
+        }
 
         /* ── Sparkline ──────────────────────────────────── */
         .sparkline-wrap { height: 52px; margin: 12px 0 10px; position: relative; }
@@ -237,17 +254,29 @@
         .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
         /* ── Config modal ───────────────────────────────── */
-        #config-modal .modal { max-width: 420px; }
+        #config-modal .modal,
+        #filter-modal .modal { max-width: 420px; }
+        #batch-modal .modal  { max-width: 760px; }
         .form-group        { display: flex; flex-direction: column; gap: 4px; flex: 1; margin-bottom: 14px; }
         .form-group label  { font-size: 12px; font-weight: 500; color: var(--text-3); }
-        .form-group input  {
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
             padding: 7px 10px; font-size: 13px;
             border: 0.5px solid var(--border);
             border-radius: var(--r-sm);
             outline: none; width: 100%;
             background: white; color: var(--text-1);
         }
-        .form-group input:focus { border-color: #888; }
+        .form-group textarea {
+            min-height: 220px;
+            resize: vertical;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            line-height: 1.45;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus { border-color: #888; }
         .form-row { display: flex; gap: 10px; }
 
         /* ── Chart modal ────────────────────────────────── */
@@ -299,6 +328,8 @@
                 Auto-refresh
             </div>
             <button class="btn" onclick="refreshAll()">↻ Refresh</button>
+            <button class="btn" onclick="openAddSensorModal()">Add sensor</button>
+            <button class="btn btn-dark" onclick="openBatchModal()">Batch edit</button>
         </div>
     </div>
 
@@ -308,67 +339,82 @@
         <div class="stat-chip"><strong id="stat-ph">—</strong>pH</div>
         <div class="stat-chip"><strong id="stat-temp">—</strong>Temperature</div>
         <div class="stat-chip"><strong id="stat-other">—</strong>Other</div>
+        <div class="stat-chip"><strong id="stat-clusters">—</strong>Clusters</div>
     </div>
 
     <!-- Filter bar -->
     <div class="filter-bar">
-        <input type="search" id="search-input" placeholder="Search by sensor ID…" oninput="applyFilters()">
-        <button class="btn active" onclick="setFilter('all',  this)">All</button>
-        <button class="btn"        onclick="setFilter('ph',   this)">pH</button>
-        <button class="btn"        onclick="setFilter('temp', this)">Temp</button>
-        <button class="btn"        onclick="setFilter('other',this)">Other</button>
+        <input type="search" id="search-input" placeholder="Search sensors, clusters, types…" oninput="applyFilters()">
+        <button class="btn" onclick="openFilterModal()">Filters</button>
+        <button class="btn" onclick="clearFilters()">Clear</button>
     </div>
+    <div class="filter-summary" id="filter-summary"></div>
 
     <!-- Sensor grid -->
     <div class="sensor-grid" id="sensor-grid">
-        {% for sid, config in sensors.items() %}
-        {% set stype = 'ph' if 'ph' in sid.lower() else ('temp' if 'temp' in sid.lower() else 'other') %}
+        {% for cluster_id, cluster_sensors in sensors.items() %}
+        {% for sid, config in cluster_sensors.items() %}
+        {% set full_sid = cluster_id ~ sid %}
+        {% set type_text = config.type or 'unknown' %}
+        {% set type_lower = type_text.lower() %}
+        {% set stype = 'ph' if 'ph' in type_lower else ('temp' if 'temp' in type_lower or 'temperature' in type_lower else 'other') %}
         <div class="sensor-card {{ stype }}"
-             data-sid="{{ sid }}"
-             data-type="{{ stype }}">
+             data-sid="{{ full_sid }}"
+             data-local-id="{{ sid }}"
+             data-cluster-id="{{ cluster_id }}"
+             data-type="{{ stype }}"
+             data-type-label="{{ type_text }}"
+             data-unit="{{ config.unit or '' }}"
+             data-min="{{ config.min if config.min is not none else '' }}"
+             data-max="{{ config.max if config.max is not none else '' }}"
+             data-measure="{{ config.measure_interval_s if config.measure_interval_s is not none else '' }}"
+             data-sync="{{ config.config_interval_s if config.config_interval_s is not none else '' }}">
 
-            <div class="sensor-id">{{ sid }}</div>
+            <div class="sensor-id">{{ full_sid }}</div>
+
+            <div class="meta-item">
+                <span class="meta-label">Cluster</span>
+                <span class="badge">{{ cluster_id }}</span>
+            </div>
 
             <div class="meta-item">
                 <span class="meta-label">Type</span>
-                <span class="badge">{{ config.type }}</span>
+                <span class="badge">{{ type_text }}</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Unit</span>
+                <span>{{ config.unit or '—' }}</span>
             </div>
             <div class="meta-item">
                 <span class="meta-label">Range</span>
-                <span>{{ config.min }} – {{ config.max }}</span>
+                <span>{{ config.min if config.min is not none else '—' }} – {{ config.max if config.max is not none else '—' }}</span>
             </div>
             <div class="meta-item">
                 <span class="meta-label">Measure interval</span>
-                <span>{{ config.measure_interval_s }}s</span>
+                <span>{{ config.measure_interval_s if config.measure_interval_s is not none else '—' }}s</span>
             </div>
             <div class="meta-item">
                 <span class="meta-label">Sync interval</span>
-                <span>{{ config.config_interval_s }}s</span>
+                <span>{{ config.config_interval_s if config.config_interval_s is not none else '—' }}s</span>
             </div>
 
             <div class="sparkline-wrap">
-                <div class="spark-empty" id="spark-empty-{{ sid }}">Loading…</div>
-                <canvas id="spark-{{ sid }}" style="display:none"></canvas>
+                <div class="spark-empty" id="spark-empty-{{ full_sid }}">Loading…</div>
+                <canvas id="spark-{{ full_sid }}" style="display:none"></canvas>
             </div>
 
             <div class="card-actions">
                 <button class="btn btn-sm" onclick="openChartModal(
-                    '{{ sid }}',
-                    '{{ config.type }}',
-                    {{ config.min }},
-                    {{ config.max }}
+                    {{ full_sid|tojson }},
+                    {{ type_text|tojson }},
+                    {{ config.min if config.min is not none else 'null' }},
+                    {{ config.max if config.max is not none else 'null' }}
                 )">View history</button>
 
-                <button class="btn btn-sm btn-dark" onclick="openConfigModal(
-                    '{{ sid }}',
-                    '{{ config.type }}',
-                    {{ config.min }},
-                    {{ config.max }},
-                    {{ config.measure_interval_s }},
-                    {{ config.config_interval_s }}
-                )">Configure</button>
+                <button class="btn btn-sm btn-dark" onclick="openConfigModalFromButton(this)">Configure</button>
             </div>
         </div>
+        {% endfor %}
         {% else %}
         <div class="empty-state">No active sensors found on this edge instance.</div>
         {% endfor %}
@@ -388,9 +434,23 @@
         <form id="sensor-form">
             <input type="hidden" id="field-id">
 
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="field-cluster">Cluster ID</label>
+                    <input type="text" id="field-cluster">
+                </div>
+                <div class="form-group">
+                    <label for="field-local-id">Sensor ID</label>
+                    <input type="text" id="field-local-id">
+                </div>
+            </div>
             <div class="form-group">
                 <label for="field-type">Type</label>
                 <input type="text" id="field-type">
+            </div>
+            <div class="form-group">
+                <label for="field-unit">Unit</label>
+                <input type="text" id="field-unit">
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -416,6 +476,78 @@
             <div class="modal-actions">
                 <button type="button" class="btn" onclick="closeModal('config-modal')">Cancel</button>
                 <button type="submit" class="btn btn-dark">Save changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- ── Filter modal ──────────────────────────────────── -->
+<div id="filter-modal" class="modal-overlay" onclick="overlayClick(event,'filter-modal')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Filter sensors</h2>
+            <button class="modal-close" onclick="closeModal('filter-modal')" aria-label="Close">×</button>
+        </div>
+
+        <form id="filter-form">
+            <div class="form-group">
+                <label for="filter-cluster">Cluster</label>
+                <select id="filter-cluster">
+                    <option value="">Any cluster</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="filter-type">Type</label>
+                <select id="filter-type">
+                    <option value="">Any type</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="filter-unit">Unit</label>
+                <select id="filter-unit">
+                    <option value="">Any unit</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="filter-measure-max">Max measure interval (s)</label>
+                    <input type="number" id="filter-measure-max" min="1">
+                </div>
+                <div class="form-group">
+                    <label for="filter-sync-max">Max sync interval (s)</label>
+                    <input type="number" id="filter-sync-max" min="1">
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="clearFilters()">Clear</button>
+                <button type="button" class="btn" onclick="closeModal('filter-modal')">Cancel</button>
+                <button type="submit" class="btn btn-dark">Apply filters</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- ── Batch modal ───────────────────────────────────── -->
+<div id="batch-modal" class="modal-overlay" onclick="overlayClick(event,'batch-modal')">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Add or edit sensors in batches</h2>
+            <button class="modal-close" onclick="closeModal('batch-modal')" aria-label="Close">×</button>
+        </div>
+
+        <form id="batch-form">
+            <div class="form-group">
+                <label for="batch-input">CSV rows</label>
+                <textarea id="batch-input" spellcheck="false" placeholder="cluster_id,sensor_id,type,unit,min,max,measure_interval_s,config_interval_s"></textarea>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="loadVisibleSensorsIntoBatch()">Load visible</button>
+                <button type="button" class="btn" onclick="closeModal('batch-modal')">Cancel</button>
+                <button type="submit" class="btn btn-dark">Save batch</button>
             </div>
         </form>
     </div>
@@ -449,9 +581,79 @@
 // ── State ──────────────────────────────────────────────
 const sparkCharts  = {};
 let   detailChart  = null;
-let   activeFilter = 'all';
 let   refreshTimer = null;
 const REFRESH_MS   = 30_000;
+const filterState  = {
+    cluster: '',
+    type: '',
+    unit: '',
+    measureMax: '',
+    syncMax: '',
+};
+
+// ── Small helpers ──────────────────────────────────────
+const sensorCards = () => [...document.querySelectorAll('.sensor-card[data-sid]')];
+
+function normalizeCluster(value) {
+    const cleaned = String(value || '').trim().toUpperCase();
+    if (!cleaned) return '';
+    return cleaned.startsWith('C') ? cleaned : `C${cleaned}`;
+}
+
+function normalizeSensor(value) {
+    const cleaned = String(value || '').trim().toUpperCase();
+    if (!cleaned) return '';
+    return cleaned.startsWith('S') ? cleaned : `S${cleaned}`;
+}
+
+function numberOrNull(value) {
+    if (value === '' || value === null || value === undefined) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function intOrNull(value) {
+    if (value === '' || value === null || value === undefined) return null;
+    const parsed = parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function historyLabel(timestamp) {
+    if (Number.isFinite(Number(timestamp))) return `#${timestamp}`;
+    const parsed = new Date(timestamp);
+    return Number.isNaN(parsed.getTime()) ? String(timestamp) : parsed.toLocaleTimeString();
+}
+
+function csvEscape(value) {
+    const s = String(value ?? '');
+    return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+
+function parseCsvLine(line) {
+    const cells = [];
+    let cell = '';
+    let quoted = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        const next = line[i + 1];
+
+        if (ch === '"' && quoted && next === '"') {
+            cell += '"';
+            i++;
+        } else if (ch === '"') {
+            quoted = !quoted;
+        } else if (ch === ',' && !quoted) {
+            cells.push(cell.trim());
+            cell = '';
+        } else {
+            cell += ch;
+        }
+    }
+
+    cells.push(cell.trim());
+    return cells;
+}
 
 // ── Colour helper ──────────────────────────────────────
 function cardColor(sid) {
@@ -463,15 +665,27 @@ function cardColor(sid) {
 }
 
 // ── Sparklines ─────────────────────────────────────────
+async function getSensorHistory(sid, limit = 40) {
+    const res = await fetch('/dump/data');
+    if (!res.ok) throw new Error();
+    const body = await res.json();
+    return (body.data || [])
+        .filter(row => row.sensor_id === sid)
+        .slice(-limit)
+        .map((row, index) => ({
+            timestamp: row.timestamp || index + 1,
+            value: row.value,
+        }))
+        .filter(row => Number.isFinite(Number(row.value)));
+}
+
 async function loadSparkline(sid) {
     const canvas = document.getElementById(`spark-${sid}`);
     const empty  = document.getElementById(`spark-empty-${sid}`);
     if (!canvas) return;
 
     try {
-        const res  = await fetch(`/sensor-data/${encodeURIComponent(sid)}/history?limit=40`);
-        if (!res.ok) throw new Error();
-        const data = await res.json();   // [{timestamp, value}, …]
+        const data = await getSensorHistory(sid, 40);
         if (!data.length) throw new Error();
 
         canvas.style.display = 'block';
@@ -508,36 +722,100 @@ async function loadSparkline(sid) {
 }
 
 function loadAllSparklines() {
-    document.querySelectorAll('.sensor-card[data-sid]').forEach(c => loadSparkline(c.dataset.sid));
+    sensorCards().forEach(c => loadSparkline(c.dataset.sid));
 }
 
 // ── Stats bar ──────────────────────────────────────────
 function updateStats() {
-    const cards = [...document.querySelectorAll('.sensor-card[data-sid]')];
+    const cards = sensorCards();
     const counts = { ph: 0, temp: 0, other: 0 };
+    const clusters = new Set();
     cards.forEach(c => counts[c.dataset.type]++);
+    cards.forEach(c => clusters.add(c.dataset.clusterId));
     document.getElementById('stat-total').textContent = cards.length;
     document.getElementById('stat-ph').textContent    = counts.ph;
     document.getElementById('stat-temp').textContent  = counts.temp;
     document.getElementById('stat-other').textContent = counts.other;
+    document.getElementById('stat-clusters').textContent = clusters.size;
 }
 
 // ── Filter & search ────────────────────────────────────
-function setFilter(f, btn) {
-    activeFilter = f;
-    document.querySelectorAll('.filter-bar .btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+function populateFilterOptions() {
+    const buckets = {
+        cluster: new Set(),
+        type: new Set(),
+        unit: new Set(),
+    };
+
+    sensorCards().forEach(card => {
+        buckets.cluster.add(card.dataset.clusterId);
+        buckets.type.add(card.dataset.typeLabel);
+        if (card.dataset.unit) buckets.unit.add(card.dataset.unit);
+    });
+
+    setSelectOptions('filter-cluster', buckets.cluster, 'Any cluster');
+    setSelectOptions('filter-type', buckets.type, 'Any type');
+    setSelectOptions('filter-unit', buckets.unit, 'Any unit');
+}
+
+function setSelectOptions(id, values, emptyLabel) {
+    const select = document.getElementById(id);
+    const current = select.value;
+    select.replaceChildren(new Option(emptyLabel, ''));
+
+    [...values].filter(Boolean).sort((a, b) => a.localeCompare(b)).forEach(value => {
+        select.appendChild(new Option(value, value));
+    });
+
+    select.value = [...select.options].some(option => option.value === current) ? current : '';
+}
+
+function openFilterModal() {
+    document.getElementById('filter-cluster').value = filterState.cluster;
+    document.getElementById('filter-type').value = filterState.type;
+    document.getElementById('filter-unit').value = filterState.unit;
+    document.getElementById('filter-measure-max').value = filterState.measureMax;
+    document.getElementById('filter-sync-max').value = filterState.syncMax;
+    openModal('filter-modal');
+}
+
+function clearFilters() {
+    filterState.cluster = '';
+    filterState.type = '';
+    filterState.unit = '';
+    filterState.measureMax = '';
+    filterState.syncMax = '';
+    document.getElementById('search-input').value = '';
+    ['filter-cluster', 'filter-type', 'filter-unit', 'filter-measure-max', 'filter-sync-max'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    closeModal('filter-modal');
     applyFilters();
 }
 
 function applyFilters() {
     const q       = document.getElementById('search-input').value.toLowerCase();
-    const cards   = document.querySelectorAll('.sensor-card[data-sid]');
+    const cards   = sensorCards();
     let   visible = 0;
 
     cards.forEach(card => {
-        const show = (activeFilter === 'all' || card.dataset.type === activeFilter)
-                  && card.dataset.sid.toLowerCase().includes(q);
+        const haystack = [
+            card.dataset.sid,
+            card.dataset.localId,
+            card.dataset.clusterId,
+            card.dataset.typeLabel,
+            card.dataset.unit,
+        ].join(' ').toLowerCase();
+        const measure = numberOrNull(card.dataset.measure);
+        const sync = numberOrNull(card.dataset.sync);
+
+        const show = haystack.includes(q)
+                  && (!filterState.cluster || card.dataset.clusterId === filterState.cluster)
+                  && (!filterState.type || card.dataset.typeLabel === filterState.type)
+                  && (!filterState.unit || card.dataset.unit === filterState.unit)
+                  && (!filterState.measureMax || (measure !== null && measure <= Number(filterState.measureMax)))
+                  && (!filterState.syncMax || (sync !== null && sync <= Number(filterState.syncMax)));
+
         card.style.display = show ? '' : 'none';
         if (show) visible++;
     });
@@ -551,47 +829,211 @@ function applyFilters() {
     } else if (visible > 0 && noResults) {
         noResults.remove();
     }
+
+    updateFilterSummary();
 }
 
+function updateFilterSummary() {
+    const summary = document.getElementById('filter-summary');
+    const chips = [];
+
+    if (filterState.cluster) chips.push(`Cluster: ${filterState.cluster}`);
+    if (filterState.type) chips.push(`Type: ${filterState.type}`);
+    if (filterState.unit) chips.push(`Unit: ${filterState.unit}`);
+    if (filterState.measureMax) chips.push(`Measure <= ${filterState.measureMax}s`);
+    if (filterState.syncMax) chips.push(`Sync <= ${filterState.syncMax}s`);
+
+    summary.replaceChildren(...chips.map(label => {
+        const chip = document.createElement('span');
+        chip.className = 'filter-chip';
+        chip.textContent = label;
+        return chip;
+    }));
+}
+
+document.getElementById('filter-form').addEventListener('submit', e => {
+    e.preventDefault();
+    filterState.cluster = document.getElementById('filter-cluster').value;
+    filterState.type = document.getElementById('filter-type').value;
+    filterState.unit = document.getElementById('filter-unit').value;
+    filterState.measureMax = document.getElementById('filter-measure-max').value;
+    filterState.syncMax = document.getElementById('filter-sync-max').value;
+    closeModal('filter-modal');
+    applyFilters();
+});
+
 // ── Config modal ───────────────────────────────────────
-function openConfigModal(sid, type, min, max, measure, sync) {
+function openConfigModal(sid, clusterId, localId, type, unit, min, max, measure, sync) {
     document.getElementById('config-title').textContent  = `Configure — ${sid}`;
     document.getElementById('field-id').value            = sid;
+    document.getElementById('field-cluster').value       = clusterId;
+    document.getElementById('field-cluster').readOnly    = true;
+    document.getElementById('field-local-id').value      = localId;
+    document.getElementById('field-local-id').readOnly   = true;
     document.getElementById('field-type').value          = type;
-    document.getElementById('field-min').value           = min;
-    document.getElementById('field-max').value           = max;
-    document.getElementById('field-measure').value       = measure;
-    document.getElementById('field-sync').value          = sync;
+    document.getElementById('field-unit').value          = unit;
+    document.getElementById('field-min').value           = min ?? '';
+    document.getElementById('field-max').value           = max ?? '';
+    document.getElementById('field-measure').value       = measure ?? '';
+    document.getElementById('field-sync').value          = sync ?? '';
+    openModal('config-modal');
+}
+
+function openConfigModalFromButton(button) {
+    const card = button.closest('.sensor-card');
+    if (!card) {
+        toast('Could not find sensor card', 'error');
+        return;
+    }
+
+    openConfigModal(
+        card.dataset.sid,
+        card.dataset.clusterId,
+        card.dataset.localId,
+        card.dataset.typeLabel,
+        card.dataset.unit,
+        numberOrNull(card.dataset.min),
+        numberOrNull(card.dataset.max),
+        intOrNull(card.dataset.measure),
+        intOrNull(card.dataset.sync)
+    );
+}
+
+function openAddSensorModal() {
+    const firstCard = sensorCards()[0];
+    document.getElementById('config-title').textContent  = 'Add sensor';
+    document.getElementById('field-id').value            = '';
+    document.getElementById('field-cluster').value       = firstCard?.dataset.clusterId || 'C1';
+    document.getElementById('field-cluster').readOnly    = false;
+    document.getElementById('field-local-id').value      = '';
+    document.getElementById('field-local-id').readOnly   = false;
+    document.getElementById('field-type').value          = '';
+    document.getElementById('field-unit').value          = '';
+    document.getElementById('field-min').value           = '';
+    document.getElementById('field-max').value           = '';
+    document.getElementById('field-measure').value       = '';
+    document.getElementById('field-sync').value          = '10';
     openModal('config-modal');
 }
 
 document.getElementById('sensor-form').addEventListener('submit', async e => {
     e.preventDefault();
-    const sid = document.getElementById('field-id').value;
+    const clusterId = normalizeCluster(document.getElementById('field-cluster').value);
+    const localId = normalizeSensor(document.getElementById('field-local-id').value);
+
+    if (!clusterId || !localId) {
+        toast('Cluster ID and sensor ID are required', 'error');
+        return;
+    }
 
     const payload = {
         type:               document.getElementById('field-type').value || null,
-        min:                parseFloat(document.getElementById('field-min').value),
-        max:                parseFloat(document.getElementById('field-max').value),
-        measure_interval_s: parseInt(document.getElementById('field-measure').value),
-        config_interval_s:  parseInt(document.getElementById('field-sync').value),
+        unit:               document.getElementById('field-unit').value || null,
+        min:                numberOrNull(document.getElementById('field-min').value),
+        max:                numberOrNull(document.getElementById('field-max').value),
+        measure_interval_s: intOrNull(document.getElementById('field-measure').value),
+        config_interval_s:  intOrNull(document.getElementById('field-sync').value),
     };
 
     try {
-        const res = await fetch(`/sensor-config/${encodeURIComponent(sid)}`, {
-            method:  'PATCH',
+        const res = await fetch(`/sensors-by-id/${encodeURIComponent(clusterId + localId)}`, {
+            method:  'PUT',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(payload),
         });
         if (res.ok) {
             closeModal('config-modal');
             toast('Configuration saved', 'success');
+            setTimeout(() => window.location.reload(), 500);
         } else {
             const err = await res.json().catch(() => ({}));
             toast(`Error: ${err.detail ?? 'unknown error'}`, 'error');
         }
     } catch {
         toast('Network error — could not reach server', 'error');
+    }
+});
+
+// ── Batch add/edit modal ───────────────────────────────
+function openBatchModal() {
+    if (!document.getElementById('batch-input').value.trim()) {
+        loadVisibleSensorsIntoBatch();
+    }
+    openModal('batch-modal');
+}
+
+function loadVisibleSensorsIntoBatch() {
+    const header = 'cluster_id,sensor_id,type,unit,min,max,measure_interval_s,config_interval_s';
+    const rows = sensorCards()
+        .filter(card => card.style.display !== 'none')
+        .map(card => [
+            card.dataset.clusterId,
+            card.dataset.localId,
+            card.dataset.typeLabel,
+            card.dataset.unit,
+            card.dataset.min,
+            card.dataset.max,
+            card.dataset.measure,
+            card.dataset.sync,
+        ].map(csvEscape).join(','));
+
+    document.getElementById('batch-input').value = [header, ...rows].join('\n');
+}
+
+document.getElementById('batch-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const lines = document.getElementById('batch-input').value
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+    if (!lines.length) {
+        toast('Add at least one sensor row', 'error');
+        return;
+    }
+
+    try {
+        const rows = lines[0].toLowerCase().startsWith('cluster_id,') ? lines.slice(1) : lines;
+        const operations = rows.map((line, index) => {
+            const [clusterRaw, sensorRaw, type, unit, min, max, measure, sync] = parseCsvLine(line);
+            const clusterId = normalizeCluster(clusterRaw);
+            const localId = normalizeSensor(sensorRaw);
+
+            if (!clusterId || !localId) {
+                throw new Error(`Row ${index + 1}: cluster_id and sensor_id are required.`);
+            }
+
+            return {
+                sid: clusterId + localId,
+                payload: {
+                    type: type || null,
+                    unit: unit || null,
+                    min: numberOrNull(min),
+                    max: numberOrNull(max),
+                    measure_interval_s: intOrNull(measure),
+                    config_interval_s: intOrNull(sync),
+                },
+            };
+        });
+
+        const results = await Promise.all(operations.map(op => fetch(`/sensors-by-id/${encodeURIComponent(op.sid)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(op.payload),
+        })));
+
+        const failed = results.findIndex(res => !res.ok);
+        if (failed >= 0) {
+            const err = await results[failed].json().catch(() => ({}));
+            toast(`Row ${failed + 1} failed: ${err.detail ?? 'unknown error'}`, 'error');
+            return;
+        }
+
+        closeModal('batch-modal');
+        toast(`${operations.length} sensor${operations.length === 1 ? '' : 's'} saved`, 'success');
+        setTimeout(() => window.location.reload(), 600);
+    } catch (err) {
+        toast(err.message || 'Batch save failed', 'error');
     }
 });
 
@@ -607,9 +1049,7 @@ async function openChartModal(sid, type, rangeMin, rangeMax) {
     if (detailChart) { detailChart.destroy(); detailChart = null; }
 
     try {
-        const res  = await fetch(`/sensor-data/${encodeURIComponent(sid)}/history?limit=200`);
-        if (!res.ok) throw new Error();
-        const data = await res.json();
+        const data = await getSensorHistory(sid, 200);
         if (!data.length) throw new Error();
 
         const vals = data.map(d => d.value);
@@ -626,7 +1066,7 @@ async function openChartModal(sid, type, rangeMin, rangeMax) {
         detailChart = new Chart(document.getElementById('detail-chart'), {
             type: 'line',
             data: {
-                labels:   data.map(d => new Date(d.timestamp).toLocaleTimeString()),
+                labels:   data.map(d => historyLabel(d.timestamp)),
                 datasets: [{
                     label:           type,
                     data:            vals,
@@ -644,7 +1084,10 @@ async function openChartModal(sid, type, rangeMin, rangeMax) {
                     legend: { display: false },
                     tooltip: {
                         callbacks: {
-                            label: ctx => `${ctx.parsed.y.toFixed(3)}  (range ${rangeMin}–${rangeMax})`
+                            label: ctx => {
+                                const range = rangeMin === null || rangeMax === null ? '' : `  (range ${rangeMin}-${rangeMax})`;
+                                return `${ctx.parsed.y.toFixed(3)}${range}`;
+                            }
                         }
                     }
                 },
@@ -668,7 +1111,7 @@ function overlayClick(e, id) {
 }
 
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') ['config-modal','chart-modal'].forEach(closeModal);
+    if (e.key === 'Escape') ['config-modal','filter-modal','batch-modal','chart-modal'].forEach(closeModal);
 });
 
 // ── Toast ──────────────────────────────────────────────
@@ -694,7 +1137,9 @@ toggle.addEventListener('change', () => {
 });
 
 // ── Init ───────────────────────────────────────────────
+populateFilterOptions();
 updateStats();
+applyFilters();
 refreshAll();
 if (toggle.checked) refreshTimer = setInterval(refreshAll, REFRESH_MS);
 </script>

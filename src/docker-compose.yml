@@ -1,5 +1,5 @@
 services:
-  sensor-cluster:
+  sensor-cluster-1:
     build:
       context: ./sensor-cluster/
     environment:
@@ -12,9 +12,22 @@ services:
       server:
         condition: service_healthy
 
+  sensor-cluster-2:
+    build:
+      context: ./sensor-cluster/
+    environment:
+      - PYTHONUNBUFFERED=1
+    command:
+      - --cluster-id=C2
+      - --base-url=http://server
+      - --config-interval-s=5
+    depends_on:
+      server:
+        condition: service_healthy
+
   server:
     build:
-      context: ./server
+      context: ./sensor-server
     environment:
       - PYTHONUNBUFFERED=1
     ports:

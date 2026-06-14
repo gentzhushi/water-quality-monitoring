@@ -1,10 +1,14 @@
 import json
+import threading
 
 from confluent_kafka import Consumer
 
 from config import load_config
 from email_channel import EmailChannel
 from router import NotificationRouter
+from telegram_bot import TelegramBot
+from telegram_channel import TelegramChannel
+from telegram_subscribers import TelegramSubscribers
 
 
 def create_consumer(config):
@@ -25,13 +29,62 @@ def parse_alert(message):
     return json.loads(value)
 
 
+def create_notification_channels(config):
+    channels = []
+    telegram_bot = None
+
+    if config.email_enabled:
+        channels.append(EmailChannel(config))
+    else:
+        print("Email notifications are disabled", flush=True)
+
+    if not config.telegram_enabled:
+        print("Telegram notifications are disabled", flush=True)
+    elif not config.telegram_bot_token:
+        print(
+            "Telegram notifications are enabled but TELEGRAM_BOT_TOKEN is missing",
+            flush=True,
+        )
+    else:
+        subscribers = TelegramSubscribers(config.telegram_subscribers_file)
+        channels.append(TelegramChannel(config, subscribers))
+        telegram_bot = TelegramBot(config, subscribers)
+
+    if not channels:
+        print(
+            "No notification channels are enabled; alerts will be consumed but not sent",
+            flush=True,
+        )
+
+    return channels, telegram_bot
+
+
+def start_telegram_bot(telegram_bot):
+    if telegram_bot is None:
+        return
+
+    thread = threading.Thread(target=telegram_bot.run, daemon=True)
+    thread.start()
+
+
+def send_to_channels(channels, alert):
+    sent = False
+
+    for channel in channels:
+        if channel.send(alert):
+            sent = True
+
+    return sent
+
+
 def main():
     config = load_config()
     router = NotificationRouter(config.alert_cooldown_seconds)
-    email_channel = EmailChannel(config)
+    channels, telegram_bot = create_notification_channels(config)
     consumer = create_consumer(config)
 
     print(f"Notification service started: {config.describe()}", flush=True)
+    start_telegram_bot(telegram_bot)
 
     try:
         while True:
@@ -54,9 +107,11 @@ def main():
                 print(f"Skipping notification: {reason}", flush=True)
                 continue
 
-            sent = email_channel.send(alert)
+            sent = send_to_channels(channels, alert)
             if sent:
                 router.mark_sent(alert)
+            else:
+                print("No notification channel sent this alert", flush=True)
 
     except KeyboardInterrupt:
         print("Notification service stopping", flush=True)

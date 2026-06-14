@@ -35,7 +35,7 @@ The notification service also starts automatically. By default it runs in dry-ru
 - Spark Master UI: http://localhost:8081
 - Spark Worker UI: http://localhost:8082
 - Spark Application UI: http://localhost:4040
-- Notification service: consumes `water-quality-alerts` and sends Gmail SMTP email notifications
+- Notification service: consumes `water-quality-alerts` and sends Gmail SMTP email notifications and optional Telegram bot notifications
 - Kafka broker inside Docker: `kafka:9092`
 - Kafka broker from the host, if needed: `localhost:9094`
 
@@ -118,14 +118,32 @@ SMTP_USERNAME=your_email@gmail.com
 SMTP_PASSWORD=your_google_app_password
 SMTP_SENDER_EMAIL=your_email@gmail.com
 SMTP_SENDER_NAME=Water Quality Monitoring
+EMAIL_ENABLED=true
 NOTIFICATION_RECIPIENTS=person1@example.com,person2@example.com
 NOTIFICATION_DRY_RUN=false
 ALERT_COOLDOWN_SECONDS=300
 ```
 
-The `src/.env` file is ignored by Git, so the Gmail App Password stays local. If dry-run mode is enabled, the service logs the email content instead of sending it.
+Set `EMAIL_ENABLED=false` to disable email notifications entirely. The `src/.env` file is ignored by Git, so the Gmail App Password stays local. If dry-run mode is enabled, the service logs the email content instead of sending it.
 
-Sent notifications include a styled HTML email and a plain-text fallback for clients that do not render HTML.
+Sent email notifications include a styled HTML email and a plain-text fallback for clients that do not render HTML.
+
+## Telegram notifications with a bot
+
+Telegram notifications are optional and disabled by default. The notification service uses Telegram long polling, so the local Docker demo does not need a public webhook URL.
+
+Create a bot with BotFather, then add the token to `src/.env`:
+
+```sh
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_SUBSCRIBERS_FILE=/app/data/telegram_subscribers.json
+TELEGRAM_POLL_SECONDS=5
+```
+
+Start the stack and send `/start` to the bot from Telegram. The notification service stores the Telegram chat id in the `notification_data` Docker volume. Send `/stop` to unsubscribe and `/help` to see the supported commands. Set `TELEGRAM_ENABLED=false` to disable both Telegram bot polling and Telegram alert sending.
+
+If `NOTIFICATION_DRY_RUN=true`, alert messages are logged instead of being sent to Telegram subscribers. The bot can still receive `/start` and `/stop` commands when Telegram is enabled.
 
 ## Verify with Kafka UI
 
@@ -133,7 +151,7 @@ Sent notifications include a styled HTML email and a plain-text fallback for cli
 2. Select the `local` Kafka cluster.
 3. Open the `water-quality-readings` topic and confirm messages are arriving.
 4. Open the `water-quality-alerts` topic and confirm Spark is writing alert messages when abnormal values appear.
-5. Check `docker compose logs -f notification-service` and confirm the notification service logs dry-run emails or SMTP send results.
+5. Check `docker compose logs -f notification-service` and confirm the notification service logs dry-run emails, dry-run Telegram alerts, or send results.
 
 To manually test Spark, use Kafka UI to produce this message to `water-quality-readings`:
 

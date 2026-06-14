@@ -91,9 +91,16 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_SENDER_EMAIL=${SMTP_SENDER_EMAIL:-}
       - SMTP_SENDER_NAME=${SMTP_SENDER_NAME:-Water Quality Monitoring}
+      - EMAIL_ENABLED=${EMAIL_ENABLED:-true}
       - NOTIFICATION_RECIPIENTS=${NOTIFICATION_RECIPIENTS:-}
       - NOTIFICATION_DRY_RUN=${NOTIFICATION_DRY_RUN:-true}
       - ALERT_COOLDOWN_SECONDS=${ALERT_COOLDOWN_SECONDS:-300}
+      - TELEGRAM_ENABLED=${TELEGRAM_ENABLED:-false}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_SUBSCRIBERS_FILE=${TELEGRAM_SUBSCRIBERS_FILE:-/app/data/telegram_subscribers.json}
+      - TELEGRAM_POLL_SECONDS=${TELEGRAM_POLL_SECONDS:-5}
+    volumes:
+      - notification_data:/app/data
     restart: unless-stopped
 
   spark-master:
@@ -171,3 +178,4 @@ volumes:
   cassandra_data:
   spark_checkpoints:
   spark_ivy:
+  notification_data:

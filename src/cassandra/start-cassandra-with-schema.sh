@@ -2,7 +2,7 @@
 set -e
 
 CQLSH="/opt/cassandra/bin/cqlsh"
-MIGRATION_FILE="/opt/cassandra-setup/migrations/001_create_water_quality_schema.cql"
+MIGRATIONS_DIR="/opt/cassandra-setup/migrations"
 
 /usr/local/bin/docker-entrypoint.sh cassandra -f &
 cassandra_pid="$!"
@@ -26,8 +26,11 @@ until "$CQLSH" 127.0.0.1 9042 -e "DESCRIBE KEYSPACES" >/dev/null 2>&1; do
     sleep 5
 done
 
-echo "Applying Cassandra schema migration..."
-"$CQLSH" 127.0.0.1 9042 -f "$MIGRATION_FILE"
+echo "Applying Cassandra schema migrations..."
+for migration_file in "$MIGRATIONS_DIR"/*.cql; do
+    echo "Applying ${migration_file}..."
+    "$CQLSH" 127.0.0.1 9042 -f "$migration_file"
+done
 echo "Cassandra schema is ready."
 
 wait "$cassandra_pid"

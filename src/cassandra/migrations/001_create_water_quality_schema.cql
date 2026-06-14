@@ -455,18 +455,3 @@ INSERT INTO sensors_by_location (
     'demo_location_01', 'Demo Lake 01', 'mock_sensor_06', 'ORP', 'ORP',
     'mV', 'active', toTimestamp(now())
 ) IF NOT EXISTS;
-
-
--- Sensor Clusters
-CREATE TABLE IF NOT EXISTS sensor_configs_by_cluster (
-    cluster_id text,
-    sensor_id text,
-    min double,
-    max double,
-    sensor_type text,
-    unit text,
-    measure_interval_s int,
-    config_interval_s int,
-    updated_at timestamp,
-    PRIMARY KEY ((cluster_id), sensor_id)
-);

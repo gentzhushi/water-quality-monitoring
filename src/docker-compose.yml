@@ -31,7 +31,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - CASSANDRA_HOST=cassandra
+      - CASSANDRA_PORT=9042
       - CASSANDRA_KEYSPACE=water_quality
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=water-quality-readings
     ports:
       - "80:80"
     healthcheck:
@@ -41,6 +44,8 @@ services:
       retries: 3
       start_period: 0s
     depends_on:
+      kafka:
+        condition: service_healthy
       cassandra:
         condition: service_healthy
 
@@ -96,16 +101,6 @@ services:
       - KAFKA_CLUSTERS_0_NAME=local
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
       - DYNAMIC_CONFIG_ENABLED=true
-
-  mock-producer:
-    build:
-      context: ./mock-producer
-    depends_on:
-      kafka:
-        condition: service_healthy
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - KAFKA_TOPIC=water-quality-readings
 
   notification-service:
     build:
@@ -204,8 +199,6 @@ services:
       timeout: 10s
       retries: 15
       start_period: 60s
-
-
 
 volumes:
   cassandra_data:

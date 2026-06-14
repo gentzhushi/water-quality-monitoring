@@ -5,7 +5,7 @@ from  fastapi.responses  import HTMLResponse, RedirectResponse
 from  fastapi.templating import Jinja2Templates
 from  functools          import lru_cache
 from  pydantic           import BaseModel
-from  typing             import Any, Dict, List
+from  typing             import Any
 import os
 import re
 import time
@@ -17,10 +17,6 @@ CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
 CASSANDRA_CONNECT_RETRIES = int(os.getenv("CASSANDRA_CONNECT_RETRIES", "12"))
 CASSANDRA_CONNECT_DELAY_SEC = float(os.getenv("CASSANDRA_CONNECT_DELAY_SEC", "5"))
-import re
-from typing import Any
-
-
 
 
 app = FastAPI()

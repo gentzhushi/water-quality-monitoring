@@ -404,12 +404,12 @@
             </div>
 
             <div class="card-actions">
-                <button class="btn btn-sm" onclick="openChartModal(
+                <button class="btn btn-sm" onclick='openChartModal(
                     {{ full_sid|tojson }},
                     {{ type_text|tojson }},
                     {{ config.min if config.min is not none else 'null' }},
                     {{ config.max if config.max is not none else 'null' }}
-                )">View history</button>
+                )'>View history</button>
 
                 <button class="btn btn-sm btn-dark" onclick="openConfigModalFromButton(this)">Configure</button>
             </div>

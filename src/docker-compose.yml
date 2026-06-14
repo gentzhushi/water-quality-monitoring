@@ -25,6 +25,19 @@ services:
       sensor-server:
         condition: service_healthy
 
+  sensor-cluster-3:
+    build:
+      context: ./sensor-cluster/
+    environment:
+      - PYTHONUNBUFFERED=1
+    command:
+      - --cluster-id=C3
+      - --base-url=http://sensor-server
+      - --config-interval-s=5
+    depends_on:
+      sensor-server:
+        condition: service_healthy
+
   sensor-server:
     build:
       context: ./sensor-server
@@ -57,7 +70,7 @@ services:
       - CASSANDRA_HOST=cassandra
       - CASSANDRA_PORT=9042
       - CASSANDRA_KEYSPACE=water_quality
-      - DEFAULT_LOCATION_ID=demo_location_01
+      - DEFAULT_CLUSTER_ID=
     ports:
       - "8001:80"
     depends_on:
@@ -194,7 +207,7 @@ services:
       - cassandra_data:/var/lib/cassandra
       - ./cassandra:/opt/cassandra-setup:ro
     healthcheck:
-      test: [ "CMD-SHELL", "/opt/cassandra/bin/cqlsh 127.0.0.1 9042 -e 'DESCRIBE TABLE water_quality.readings_daily_by_location_parameter' >/dev/null 2>&1" ]
+      test: [ "CMD-SHELL", "/opt/cassandra/bin/cqlsh 127.0.0.1 9042 -e 'DESCRIBE TABLE water_quality.readings_daily_by_cluster_parameter' >/dev/null 2>&1" ]
       interval: 20s
       timeout: 10s
       retries: 15

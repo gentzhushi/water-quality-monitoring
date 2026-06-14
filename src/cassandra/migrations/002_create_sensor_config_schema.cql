@@ -67,3 +67,135 @@ INSERT INTO sensor_configs_by_cluster (
     10,
     toTimestamp(now())
 ) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id,
+    sensor_id,
+    min_value,
+    max_value,
+    sensor_type,
+    unit,
+    measure_interval_s,
+    config_interval_s,
+    updated_at
+) VALUES (
+    'C3',
+    'S001',
+    0,
+    14,
+    'pH',
+    'pH units',
+    2,
+    10,
+    toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id,
+    sensor_id,
+    min_value,
+    max_value,
+    sensor_type,
+    unit,
+    measure_interval_s,
+    config_interval_s,
+    updated_at
+) VALUES (
+    'C3',
+    'S002',
+    -10,
+    50,
+    'temperature',
+    'C',
+    4,
+    10,
+    toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id,
+    sensor_id,
+    min_value,
+    max_value,
+    sensor_type,
+    unit,
+    measure_interval_s,
+    config_interval_s,
+    updated_at
+) VALUES (
+    'C3',
+    'S003',
+    0,
+    1000,
+    'turbidity',
+    'NTU',
+    1,
+    10,
+    toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id,
+    sensor_id,
+    min_value,
+    max_value,
+    sensor_type,
+    unit,
+    measure_interval_s,
+    config_interval_s,
+    updated_at
+) VALUES (
+    'C3',
+    'S004',
+    0,
+    2000,
+    'conductivity',
+    'uS/cm',
+    3,
+    10,
+    toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id,
+    sensor_id,
+    min_value,
+    max_value,
+    sensor_type,
+    unit,
+    measure_interval_s,
+    config_interval_s,
+    updated_at
+) VALUES (
+    'C3',
+    'S005',
+    0,
+    15,
+    'dissolved_oxygen',
+    'mg/L',
+    2,
+    10,
+    toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id,
+    sensor_id,
+    min_value,
+    max_value,
+    sensor_type,
+    unit,
+    measure_interval_s,
+    config_interval_s,
+    updated_at
+) VALUES (
+    'C3',
+    'S006',
+    -1000,
+    1000,
+    'ORP',
+    'mV',
+    4,
+    10,
+    toTimestamp(now())
+) IF NOT EXISTS;

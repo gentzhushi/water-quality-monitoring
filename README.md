@@ -20,8 +20,8 @@ docker compose up -d --build
 This starts the existing Flask/sensor services, Kafka, Cassandra, and a small Spark standalone cluster:
 
 ```text
-mock-producer -> Kafka topic water-quality-readings -> Spark master/worker cluster -> Cassandra
-                                                         -> Kafka water-quality-alerts -> notification-service
+sensor-cluster-* -> sensor-server -> Kafka water-quality-readings -> Spark master/worker cluster -> Cassandra
+                                                                      -> Kafka water-quality-alerts -> notification-service
 ```
 
 The Cassandra schema and Spark streaming job start automatically. No manual `cqlsh` or `spark-submit` command is needed for the normal demo.
@@ -80,14 +80,14 @@ docker exec -it spark-master /opt/spark/bin/spark-submit `
 
 ## Kafka/Spark topics
 
-- `water-quality-readings`: fake readings produced by `mock-producer`
+- `water-quality-readings`: simulated readings produced by the sensor clusters through `sensor-server`
 - `water-quality-alerts`: enriched abnormal-reading alerts detected by Spark and consumed by `notification-service`
 
 Current reading message format:
 
 ```json
 {
-  "sensor_id": "mock_sensor_01",
+  "sensor_id": "C1S001",
   "sensor_type": "pH",
   "value": 8.9,
   "timestamp": "2026-06-09T21:37:59Z"
@@ -96,7 +96,7 @@ Current reading message format:
 
 Spark treats `sensor_id`, `sensor_type`, `value`, and `timestamp` as required fields.
 
-The mock producer sends pH, temperature, turbidity, conductivity, dissolved oxygen, and ORP messages every 1-2 seconds. It intentionally includes normal and abnormal values so Spark can create alerts.
+The simulated clusters poll their runtime configuration from Cassandra through `sensor-server`, then publish measurements with cluster-qualified sensor IDs such as `C1S001`.
 
 Alert thresholds are demo rules stored in Cassandra table `parameter_rules_by_parameter`. They are used by Spark for generic low/high alerting and explainable anomaly scores, and they are not official water-quality standards. The seeded demo parameters are:
 
@@ -169,21 +169,23 @@ To manually test Spark, use Kafka UI to produce this message to `water-quality-r
 
 ```json
 {
-  "sensor_id": "mock_sensor_03",
-  "sensor_type": "turbidity",
-  "value": 24,
+  "sensor_id": "C1S002",
+  "sensor_type": "pH",
+  "value": 10,
   "timestamp": "2026-06-07T12:00:00Z"
 }
 ```
 
-Expected result: Spark writes a `HIGH_TURBIDITY` alert to `water-quality-alerts`.
+Expected result: Spark writes a `HIGH_PH` alert to `water-quality-alerts`.
 
 ## Useful logs
 
 From `src`:
 
 ```sh
-docker compose logs -f mock-producer
+docker compose logs -f sensor-cluster-1
+docker compose logs -f sensor-cluster-2
+docker compose logs -f sensor-server
 docker compose logs -f cassandra
 docker compose logs -f spark-master
 docker compose logs -f spark-worker
@@ -198,7 +200,7 @@ Open http://localhost:8001/digital-twin after the stack has been running for a m
 
 The dashboard is read-only and is separate from the sensor control dashboard. It reads Cassandra through the `dashboard-backend` service and shows:
 
-- Overview: latest sensor state, active alerts, system status, recent metrics
+- Overview: latest cluster sensor state, active alerts, system status, recent metrics
 - Readings: processed Cassandra readings by sensor/day
 - Alarms: grouped alarm view derived from alert history
 - AI Insights: rolling average, rolling standard deviation, z-score, rate of change, anomaly score, and explanation
@@ -212,6 +214,4 @@ AI scores are explainable statistical scores rather than a trained ML model. Spa
 
 The final anomaly level is `NORMAL`, `WATCH`, `WARNING`, or `CRITICAL`. A configured rule breach is always raised to at least `WARNING`, and a configured critical breach is raised to `CRITICAL`, so the dashboard label matches the explanation shown to the user.
 
-## Later integration
-
-The Kafka/Spark path is intentionally separate from the existing sensor-to-Flask flow. Later, the real sensor generator can replace `mock-producer`, or the Flask server can be extended to publish received measurements into Kafka before Spark processes them.
+The Kafka/Spark path now uses the simulated sensor clusters. Cluster configuration comes from Cassandra through the sensor-server API, and measurements are published to Kafka before Spark processes them.

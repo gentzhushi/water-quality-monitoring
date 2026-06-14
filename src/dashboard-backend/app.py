@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
-DEFAULT_LOCATION_ID = os.getenv("DEFAULT_LOCATION_ID", "demo_location_01")
+DEFAULT_CLUSTER_ID = os.getenv("DEFAULT_CLUSTER_ID", "C3")
 
 app = FastAPI(title="Water Quality Digital Twin Dashboard")
 templates = Jinja2Templates(directory="templates")
@@ -102,22 +102,188 @@ def query_rows(statement: str, params: tuple = ()) -> list[dict[str, Any]]:
     return serialize_rows(db().execute(statement, params))
 
 
-def get_sensors(location_id: str = DEFAULT_LOCATION_ID) -> list[dict[str, Any]]:
-    return query_rows(
-        """
-        SELECT location_id, location_name, sensor_id, sensor_type, parameter, unit, status, last_seen_at
-        FROM sensors_by_location
-        WHERE location_id = %s
-        """,
-        (location_id,),
-    )
+def full_sensor_id(cluster_id: str, local_sensor_id: str) -> str:
+    return f"{cluster_id}{local_sensor_id}"
 
 
-def get_first_sensor_id(location_id: str = DEFAULT_LOCATION_ID) -> str | None:
-    sensors = get_sensors(location_id)
+def normalize_cluster_id(cluster_id: str | None) -> str | None:
+    if cluster_id is None:
+        return None
+    cluster_id = cluster_id.strip()
+    return cluster_id or None
+
+
+def get_cluster_ids() -> list[str]:
+    rows = query_rows("SELECT cluster_id FROM sensor_clusters")
+    cluster_ids = {row["cluster_id"] for row in rows}
+    fallback_rows = query_rows("SELECT cluster_id FROM sensor_configs_by_cluster")
+    cluster_ids.update(row["cluster_id"] for row in fallback_rows)
+    return sorted(cluster_ids)
+
+
+def get_sensors(cluster_id: str | None = None) -> list[dict[str, Any]]:
+    cluster_id = normalize_cluster_id(cluster_id)
+    if cluster_id is not None:
+        rows = query_rows(
+            """
+            SELECT cluster_id, sensor_id, sensor_type, unit, min_value, max_value,
+                   measure_interval_s, config_interval_s, updated_at
+            FROM sensor_configs_by_cluster
+            WHERE cluster_id = %s
+            """,
+            (cluster_id,),
+        )
+    else:
+        rows = []
+        for cluster in get_cluster_ids():
+            rows.extend(
+                query_rows(
+                    """
+                    SELECT cluster_id, sensor_id, sensor_type, unit, min_value, max_value,
+                           measure_interval_s, config_interval_s, updated_at
+                    FROM sensor_configs_by_cluster
+                    WHERE cluster_id = %s
+                    """,
+                    (cluster,),
+                )
+            )
+
+    sensors = [
+        {
+            **row,
+            "local_sensor_id": row["sensor_id"],
+            "sensor_id": full_sensor_id(row["cluster_id"], row["sensor_id"]),
+            "parameter": row["sensor_type"],
+            "status": "active",
+            "last_seen_at": row.get("updated_at"),
+        }
+        for row in rows
+    ]
+    sensors.sort(key=lambda item: (item["cluster_id"], item["local_sensor_id"]))
+    return sensors
+
+
+def get_first_sensor_id(cluster_id: str | None = None) -> str | None:
+    sensors = get_sensors(cluster_id)
     if not sensors:
         return None
     return sensors[0]["sensor_id"]
+
+
+def get_latest_rows_for_clusters(table_name: str, columns: str, cluster_id: str | None = None) -> list[dict[str, Any]]:
+    cluster_id = normalize_cluster_id(cluster_id)
+    if cluster_id is not None:
+        return query_rows(
+            f"""
+            SELECT {columns}
+            FROM {table_name}
+            WHERE cluster_id = %s
+            """,
+            (cluster_id,),
+        )
+
+    rows: list[dict[str, Any]] = []
+    for cluster in get_cluster_ids():
+        rows.extend(
+            query_rows(
+                f"""
+                SELECT {columns}
+                FROM {table_name}
+                WHERE cluster_id = %s
+                """,
+                (cluster,),
+            )
+        )
+    rows.sort(key=lambda item: item.get("event_time") or item.get("minute_start") or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return rows
+
+
+def get_day_rows_for_clusters(table_name: str, columns: str, bucket_date: date, cluster_id: str | None = None) -> list[dict[str, Any]]:
+    cluster_id = normalize_cluster_id(cluster_id)
+    if cluster_id is not None:
+        return query_rows(
+            f"""
+            SELECT {columns}
+            FROM {table_name}
+            WHERE cluster_id = %s AND bucket_date = %s
+            """,
+            (cluster_id, bucket_date),
+        )
+
+    rows: list[dict[str, Any]] = []
+    for cluster in get_cluster_ids():
+        rows.extend(
+            query_rows(
+                f"""
+                SELECT {columns}
+                FROM {table_name}
+                WHERE cluster_id = %s AND bucket_date = %s
+                """,
+                (cluster, bucket_date),
+            )
+        )
+    rows.sort(key=lambda item: item["event_time"], reverse=True)
+    return rows
+
+
+def get_metric_rows_for_clusters(metric_date: date, cluster_id: str | None = None) -> list[dict[str, Any]]:
+    cluster_id = normalize_cluster_id(cluster_id)
+    if cluster_id is not None:
+        return query_rows(
+            """
+            SELECT cluster_id, metric_date, minute_start, processed_reading_count, alert_count,
+                   avg_anomaly_score, max_anomaly_score, avg_event_latency_ms,
+                   max_event_latency_ms, updated_at
+            FROM pipeline_metrics_by_cluster_minute
+            WHERE cluster_id = %s AND metric_date = %s
+            """,
+            (cluster_id, metric_date),
+        )
+
+    rows: list[dict[str, Any]] = []
+    for cluster in get_cluster_ids():
+        rows.extend(
+            query_rows(
+                """
+                SELECT cluster_id, metric_date, minute_start, processed_reading_count, alert_count,
+                       avg_anomaly_score, max_anomaly_score, avg_event_latency_ms,
+                       max_event_latency_ms, updated_at
+                FROM pipeline_metrics_by_cluster_minute
+                WHERE cluster_id = %s AND metric_date = %s
+                """,
+                (cluster, metric_date),
+            )
+        )
+    rows.sort(key=lambda item: item["minute_start"], reverse=True)
+    return rows
+
+
+def aggregate_metrics(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+
+    latest_minute = max(row["minute_start"] for row in rows)
+    minute_rows = [row for row in rows if row["minute_start"] == latest_minute]
+    processed = sum(row.get("processed_reading_count", 0) or 0 for row in minute_rows)
+    alerts = sum(row.get("alert_count", 0) or 0 for row in minute_rows)
+    latency_values = [row.get("avg_event_latency_ms") for row in minute_rows if row.get("avg_event_latency_ms") is not None]
+    score_values = [row.get("avg_anomaly_score") for row in minute_rows if row.get("avg_anomaly_score") is not None]
+    max_score_values = [row.get("max_anomaly_score") for row in minute_rows if row.get("max_anomaly_score") is not None]
+    max_latency_values = [row.get("max_event_latency_ms") for row in minute_rows if row.get("max_event_latency_ms") is not None]
+
+    updated_values = [row.get("updated_at") for row in minute_rows if row.get("updated_at") is not None]
+
+    return {
+        "metric_date": minute_rows[0]["metric_date"],
+        "minute_start": latest_minute,
+        "processed_reading_count": processed,
+        "alert_count": alerts,
+        "avg_anomaly_score": round(sum(score_values) / len(score_values), 4) if score_values else None,
+        "max_anomaly_score": max(max_score_values) if max_score_values else None,
+        "avg_event_latency_ms": round(sum(latency_values) / len(latency_values), 3) if latency_values else None,
+        "max_event_latency_ms": max(max_latency_values) if max_latency_values else None,
+        "updated_at": max(updated_values) if updated_values else None,
+    }
 
 
 def get_parameter_rules() -> dict[str, dict[str, Any]]:
@@ -140,7 +306,10 @@ def digital_twin(request: Request):
     return templates.TemplateResponse(
         request,
         "digital_twin.html",
-        {"default_location_id": DEFAULT_LOCATION_ID},
+        {
+            "default_cluster_id": DEFAULT_CLUSTER_ID,
+            "default_cluster_label": "All sensors",
+        },
     )
 
 
@@ -151,58 +320,46 @@ def healthcheck():
 
 
 @app.get("/api/sensors")
-def api_sensors(location_id: str = DEFAULT_LOCATION_ID):
-    return {"items": get_sensors(location_id)}
+def api_sensors(cluster_id: str | None = None):
+    return {"items": get_sensors(cluster_id)}
+
+
+@app.get("/api/clusters")
+def api_clusters():
+    return {
+        "default_cluster_id": DEFAULT_CLUSTER_ID,
+        "items": [{"cluster_id": cluster_id} for cluster_id in get_cluster_ids()],
+    }
 
 
 @app.get("/api/latest-readings")
-def api_latest_readings(location_id: str = DEFAULT_LOCATION_ID):
-    rows = query_rows(
-        """
-        SELECT location_id, parameter, sensor_id, event_time, value, unit, quality_status, updated_at
-        FROM latest_readings_by_location
-        WHERE location_id = %s
-        """,
-        (location_id,),
+def api_latest_readings(cluster_id: str | None = None):
+    rows = get_latest_rows_for_clusters(
+        "latest_readings_by_cluster",
+        "cluster_id, parameter, sensor_id, local_sensor_id, event_time, value, unit, quality_status, updated_at",
+        cluster_id,
     )
     return {"items": rows}
 
 
 @app.get("/api/overview")
-def api_overview(location_id: str = DEFAULT_LOCATION_ID):
-    sensors = get_sensors(location_id)
-    latest = api_latest_readings(location_id)["items"]
+def api_overview(cluster_id: str | None = None):
+    sensors = get_sensors(cluster_id)
+    latest = api_latest_readings(cluster_id)["items"]
     parameter_rules = get_parameter_rules()
-    latest_ai = query_rows(
-        """
-        SELECT location_id, parameter, sensor_id, event_time, value, unit, anomaly_score,
-               anomaly_level, rolling_average, z_score, rate_of_change, explanation, updated_at
-        FROM latest_ai_scores_by_location
-        WHERE location_id = %s
-        """,
-        (location_id,),
+    latest_ai = get_latest_rows_for_clusters(
+        "latest_ai_scores_by_cluster",
+        "cluster_id, parameter, sensor_id, local_sensor_id, event_time, value, unit, anomaly_score, anomaly_level, rolling_average, z_score, rate_of_change, explanation, updated_at",
+        cluster_id,
     )
     today = utc_today()
-    alerts = query_rows(
-        """
-        SELECT location_id, bucket_date, event_time, sensor_id, parameter, value, unit,
-               alert_type, severity, alarm_state, message, explanation, processed_at
-        FROM alerts_by_location_day
-        WHERE location_id = %s AND bucket_date = %s
-        LIMIT 200
-        """,
-        (location_id, today),
+    alerts = get_day_rows_for_clusters(
+        "alerts_by_cluster_day",
+        "cluster_id, bucket_date, event_time, sensor_id, local_sensor_id, parameter, value, unit, alert_type, severity, alarm_state, message, explanation, processed_at",
+        today,
+        cluster_id,
     )
-    metrics = query_rows(
-        """
-        SELECT metric_date, minute_start, processed_reading_count, alert_count, avg_anomaly_score,
-               max_anomaly_score, avg_event_latency_ms, max_event_latency_ms, updated_at
-        FROM pipeline_metrics_by_minute
-        WHERE metric_date = %s
-        LIMIT 1
-        """,
-        (today,),
-    )
+    metrics = aggregate_metrics(get_metric_rows_for_clusters(today, cluster_id))
 
     recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
     recent_alerts = [
@@ -255,14 +412,14 @@ def api_overview(location_id: str = DEFAULT_LOCATION_ID):
     parameter_averages.sort(key=lambda item: item["display_name"])
 
     return {
-        "location_id": location_id,
+        "cluster_id": normalize_cluster_id(cluster_id),
         "system_status": system_status,
         "active_sensor_count": len(sensors),
         "active_alert_count": len(recent_alerts),
         "average_ph": average("pH"),
         "average_temperature": average("temperature"),
         "parameter_averages": parameter_averages,
-        "latest_metric": metrics[0] if metrics else None,
+        "latest_metric": metrics,
         "latest_readings": latest,
         "latest_ai": latest_ai,
         "recent_alerts": recent_alerts[:20],
@@ -274,9 +431,9 @@ def api_readings(
     sensor_id: str | None = None,
     bucket_date: str | None = None,
     limit: int = Query(default=200, ge=1, le=500),
-    location_id: str = DEFAULT_LOCATION_ID,
+    cluster_id: str | None = None,
 ):
-    sensor_id = sensor_id or get_first_sensor_id(location_id)
+    sensor_id = sensor_id or get_first_sensor_id(cluster_id)
     if sensor_id is None:
         return {"sensor_id": None, "items": []}
 
@@ -284,8 +441,8 @@ def api_readings(
     limit = clamp_limit(limit)
     rows = query_rows(
         f"""
-        SELECT sensor_id, bucket_date, event_time, location_id, parameter, value, unit,
-               quality_status, ingestion_time
+        SELECT sensor_id, bucket_date, event_time, cluster_id, local_sensor_id, parameter,
+               value, unit, quality_status, ingestion_time
         FROM readings_by_sensor_day
         WHERE sensor_id = %s AND bucket_date = %s
         LIMIT {limit}
@@ -298,7 +455,7 @@ def api_readings(
 
 @app.get("/api/alerts")
 def api_alerts(
-    location_id: str = DEFAULT_LOCATION_ID,
+    cluster_id: str | None = None,
     bucket_date: str | None = None,
     severity: str | None = None,
     sensor_id: str | None = None,
@@ -306,26 +463,22 @@ def api_alerts(
 ):
     day = parse_day(bucket_date)
     limit = clamp_limit(limit)
-    rows = query_rows(
-        f"""
-        SELECT location_id, bucket_date, event_time, sensor_id, parameter, value, unit,
-               alert_type, severity, alarm_state, message, explanation, processed_at
-        FROM alerts_by_location_day
-        WHERE location_id = %s AND bucket_date = %s
-        LIMIT {limit}
-        """,
-        (location_id, day),
+    rows = get_day_rows_for_clusters(
+        "alerts_by_cluster_day",
+        "cluster_id, bucket_date, event_time, sensor_id, local_sensor_id, parameter, value, unit, alert_type, severity, alarm_state, message, explanation, processed_at",
+        day,
+        cluster_id,
     )
     if severity:
         rows = [row for row in rows if row["severity"] == severity]
     if sensor_id:
         rows = [row for row in rows if row["sensor_id"] == sensor_id]
-    return {"location_id": location_id, "bucket_date": day.isoformat(), "items": rows}
+    return {"cluster_id": normalize_cluster_id(cluster_id), "bucket_date": day.isoformat(), "items": rows[:limit]}
 
 
 @app.get("/api/alarms")
-def api_alarms(location_id: str = DEFAULT_LOCATION_ID, bucket_date: str | None = None):
-    alerts = api_alerts(location_id=location_id, bucket_date=bucket_date, limit=500)["items"]
+def api_alarms(cluster_id: str | None = None, bucket_date: str | None = None):
+    alerts = api_alerts(cluster_id=cluster_id, bucket_date=bucket_date, limit=500)["items"]
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     now = datetime.now(timezone.utc)
 
@@ -363,9 +516,9 @@ def api_ai_insights(
     sensor_id: str | None = None,
     bucket_date: str | None = None,
     limit: int = Query(default=120, ge=1, le=500),
-    location_id: str = DEFAULT_LOCATION_ID,
+    cluster_id: str | None = None,
 ):
-    sensor_id = sensor_id or get_first_sensor_id(location_id)
+    sensor_id = sensor_id or get_first_sensor_id(cluster_id)
     if sensor_id is None:
         return {"sensor_id": None, "items": []}
 
@@ -373,8 +526,8 @@ def api_ai_insights(
     limit = clamp_limit(limit)
     rows = query_rows(
         f"""
-        SELECT sensor_id, bucket_date, event_time, location_id, parameter, value, unit,
-               rolling_average, rolling_stddev, z_score, rate_of_change,
+        SELECT sensor_id, bucket_date, event_time, cluster_id, local_sensor_id, parameter,
+               value, unit, rolling_average, rolling_stddev, z_score, rate_of_change,
                threshold_component, statistical_component, rate_component,
                anomaly_score, anomaly_level, explanation, computed_at
         FROM ai_scores_by_sensor_day
@@ -391,22 +544,63 @@ def api_ai_insights(
 def api_performance(
     metric_date: str | None = None,
     limit: int = Query(default=120, ge=1, le=500),
+    cluster_id: str | None = None,
 ):
     day = parse_day(metric_date)
     limit = clamp_limit(limit)
-    rows = query_rows(
-        f"""
-        SELECT metric_date, minute_start, processed_reading_count, alert_count,
-               avg_anomaly_score, max_anomaly_score, avg_event_latency_ms,
-               max_event_latency_ms, updated_at
-        FROM pipeline_metrics_by_minute
-        WHERE metric_date = %s
-        LIMIT {limit}
-        """,
-        (day,),
-    )
+    rows = get_metric_rows_for_clusters(day, cluster_id)
+    if cluster_id is None:
+        aggregated: dict[datetime, dict[str, Any]] = {}
+        for row in rows:
+            minute = row["minute_start"]
+            bucket = aggregated.setdefault(
+                minute,
+                {
+                    "metric_date": row["metric_date"],
+                    "minute_start": minute,
+                    "processed_reading_count": 0,
+                    "alert_count": 0,
+                    "avg_anomaly_score_values": [],
+                    "max_anomaly_score_values": [],
+                    "avg_event_latency_ms_values": [],
+                    "max_event_latency_ms_values": [],
+                    "updated_at_values": [],
+                },
+            )
+            bucket["processed_reading_count"] += row.get("processed_reading_count", 0) or 0
+            bucket["alert_count"] += row.get("alert_count", 0) or 0
+            if row.get("avg_anomaly_score") is not None:
+                bucket["avg_anomaly_score_values"].append(row["avg_anomaly_score"])
+            if row.get("max_anomaly_score") is not None:
+                bucket["max_anomaly_score_values"].append(row["max_anomaly_score"])
+            if row.get("avg_event_latency_ms") is not None:
+                bucket["avg_event_latency_ms_values"].append(row["avg_event_latency_ms"])
+            if row.get("max_event_latency_ms") is not None:
+                bucket["max_event_latency_ms_values"].append(row["max_event_latency_ms"])
+            if row.get("updated_at") is not None:
+                bucket["updated_at_values"].append(row["updated_at"])
+
+        rows = []
+        for minute, bucket in aggregated.items():
+            rows.append(
+                {
+                    "metric_date": bucket["metric_date"],
+                    "minute_start": minute,
+                    "processed_reading_count": bucket["processed_reading_count"],
+                    "alert_count": bucket["alert_count"],
+                    "avg_anomaly_score": round(sum(bucket["avg_anomaly_score_values"]) / len(bucket["avg_anomaly_score_values"]), 4) if bucket["avg_anomaly_score_values"] else None,
+                    "max_anomaly_score": max(bucket["max_anomaly_score_values"]) if bucket["max_anomaly_score_values"] else None,
+                    "avg_event_latency_ms": round(sum(bucket["avg_event_latency_ms_values"]) / len(bucket["avg_event_latency_ms_values"]), 3) if bucket["avg_event_latency_ms_values"] else None,
+                    "max_event_latency_ms": max(bucket["max_event_latency_ms_values"]) if bucket["max_event_latency_ms_values"] else None,
+                    "updated_at": max(bucket["updated_at_values"]) if bucket["updated_at_values"] else None,
+                }
+            )
+        rows.sort(key=lambda item: item["minute_start"], reverse=True)
+    else:
+        rows.sort(key=lambda item: item["minute_start"], reverse=True)
+    rows = rows[:limit]
     rows.reverse()
-    return {"metric_date": day.isoformat(), "items": rows}
+    return {"cluster_id": normalize_cluster_id(cluster_id), "metric_date": day.isoformat(), "items": rows}
 
 
 if __name__ == "__main__":

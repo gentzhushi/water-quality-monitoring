@@ -46,7 +46,7 @@ ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "water-quality-alerts")
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = os.getenv("CASSANDRA_PORT", "9042")
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
-CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v4"
+CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v5-clusters"
 DEFAULT_THRESHOLD_SCALE = 1.0
 DEFAULT_RATE_CHANGE_SCALE = 1.0
 
@@ -102,7 +102,8 @@ def write_processed_readings(batch_df, _batch_id):
                 "sensor_id",
                 "bucket_date",
                 "event_time",
-                "location_id",
+                "cluster_id",
+                "local_sensor_id",
                 "parameter",
                 "value",
                 "unit",
@@ -114,21 +115,22 @@ def write_processed_readings(batch_df, _batch_id):
 
         write_to_cassandra(
             batch_df.select(
-                "location_id",
+                "cluster_id",
                 "parameter",
                 "bucket_date",
                 "event_time",
                 "sensor_id",
+                "local_sensor_id",
                 "value",
                 "unit",
                 "quality_status",
                 "ingestion_time",
             ),
-            "readings_by_location_parameter_day",
+            "readings_by_cluster_parameter_day",
         )
 
         latest_reading_window = Window.partitionBy(
-            "location_id",
+            "cluster_id",
             "parameter",
             "sensor_id",
         ).orderBy(col("event_time").desc())
@@ -137,9 +139,10 @@ def write_processed_readings(batch_df, _batch_id):
             batch_df.withColumn("row_number", row_number().over(latest_reading_window))
             .where(col("row_number") == 1)
             .select(
-                "location_id",
+                "cluster_id",
                 "parameter",
                 "sensor_id",
+                "local_sensor_id",
                 "event_time",
                 "value",
                 "unit",
@@ -148,7 +151,7 @@ def write_processed_readings(batch_df, _batch_id):
             )
         )
 
-        write_to_cassandra(latest_readings, "latest_readings_by_location")
+        write_to_cassandra(latest_readings, "latest_readings_by_cluster")
     finally:
         batch_df.unpersist()
 
@@ -159,7 +162,7 @@ def write_hourly_aggregates(batch_df, _batch_id):
 
     write_to_cassandra(
         batch_df.select(
-            "location_id",
+            "cluster_id",
             "parameter",
             "bucket_month",
             "window_start",
@@ -171,7 +174,7 @@ def write_hourly_aggregates(batch_df, _batch_id):
             "unit",
             "updated_at",
         ),
-        "readings_hourly_by_location_parameter",
+        "readings_hourly_by_cluster_parameter",
     )
 
 
@@ -181,7 +184,7 @@ def write_daily_aggregates(batch_df, _batch_id):
 
     write_to_cassandra(
         batch_df.select(
-            "location_id",
+            "cluster_id",
             "parameter",
             "bucket_year",
             "day",
@@ -193,7 +196,7 @@ def write_daily_aggregates(batch_df, _batch_id):
             "unit",
             "updated_at",
         ),
-        "readings_daily_by_location_parameter",
+        "readings_daily_by_cluster_parameter",
     )
 
 def write_alerts_to_cassandra(batch_df, _batch_id):
@@ -208,8 +211,8 @@ def write_alerts_to_cassandra(batch_df, _batch_id):
                 "bucket_date",
                 "event_time",
                 "alert_id",
-                "location_id",
-                "location_name",
+                "cluster_id",
+                "local_sensor_id",
                 "parameter",
                 "value",
                 "unit",
@@ -227,12 +230,12 @@ def write_alerts_to_cassandra(batch_df, _batch_id):
 
         write_to_cassandra(
             batch_df.select(
-                "location_id",
+                "cluster_id",
                 "bucket_date",
                 "event_time",
                 "sensor_id",
+                "local_sensor_id",
                 "alert_id",
-                "location_name",
                 "parameter",
                 "value",
                 "unit",
@@ -245,7 +248,7 @@ def write_alerts_to_cassandra(batch_df, _batch_id):
                 "explanation",
                 "processed_at",
             ),
-            "alerts_by_location_day",
+            "alerts_by_cluster_day",
         )
     finally:
         batch_df.unpersist()
@@ -392,7 +395,8 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
             "sensor_id",
             "bucket_date",
             "event_time",
-            "location_id",
+            "cluster_id",
+            "local_sensor_id",
             "parameter",
             "value",
             "unit",
@@ -412,7 +416,7 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
         write_to_cassandra(ai_scores, "ai_scores_by_sensor_day")
 
         latest_ai_window = Window.partitionBy(
-            "location_id",
+            "cluster_id",
             "parameter",
             "sensor_id",
         ).orderBy(col("event_time").desc())
@@ -421,9 +425,10 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
             ai_scores.withColumn("row_number", row_number().over(latest_ai_window))
             .where(col("row_number") == 1)
             .select(
-                "location_id",
+                "cluster_id",
                 "parameter",
                 "sensor_id",
+                "local_sensor_id",
                 "event_time",
                 "value",
                 "unit",
@@ -437,7 +442,7 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
             )
         )
 
-        write_to_cassandra(latest_ai_scores, "latest_ai_scores_by_location")
+        write_to_cassandra(latest_ai_scores, "latest_ai_scores_by_cluster")
 
         pipeline_metrics = (
             scored.withColumn("minute_start", date_trunc("minute", col("computed_at")))
@@ -446,7 +451,7 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
                 "event_latency_ms",
                 ((unix_timestamp(col("computed_at")) - unix_timestamp(col("event_time"))) * 1000).cast("double"),
             )
-            .groupBy("metric_date", "minute_start")
+            .groupBy("cluster_id", "metric_date", "minute_start")
             .agg(
                 count("*").alias("processed_reading_count"),
                 spark_sum(when(col("quality_status") == "alert", lit(1)).otherwise(lit(0))).cast("bigint").alias("alert_count"),
@@ -457,6 +462,7 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
             )
             .withColumn("updated_at", current_timestamp())
             .select(
+                "cluster_id",
                 "metric_date",
                 "minute_start",
                 "processed_reading_count",
@@ -469,23 +475,23 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
             )
         )
 
-        write_to_cassandra(pipeline_metrics, "pipeline_metrics_by_minute")
+        write_to_cassandra(pipeline_metrics, "pipeline_metrics_by_cluster_minute")
     finally:
         batch_df.unpersist()
 
 
-# Sensor metadata used to enrich incoming readings
+# Runtime sensor configuration used to enrich incoming cluster readings.
 sensor_metadata = (
     spark.read.format("org.apache.spark.sql.cassandra")
-    .options(keyspace=CASSANDRA_KEYSPACE, table="sensors_by_id")
+    .options(keyspace=CASSANDRA_KEYSPACE, table="sensor_configs_by_cluster")
     .load()
     .select(
-        "sensor_id",
-        "location_id",
-        "location_name",
-        "parameter",
+        "cluster_id",
+        col("sensor_id").alias("local_sensor_id"),
+        col("sensor_type").alias("parameter"),
         "unit",
     )
+    .withColumn("sensor_id", concat(col("cluster_id"), col("local_sensor_id")))
 )
 
 # Parameter rules used for generic alerting and anomaly scoring.
@@ -571,7 +577,7 @@ processed_readings = (
     valid_readings.join(sensor_metadata, "sensor_id", "inner")
     .withColumn("parameter", coalesce(col("parameter"), col("sensor_type")))
     .join(parameter_rules, col("parameter") == col("rule_parameter"), "left")
-    .where(col("location_id").isNotNull())
+    .where(col("cluster_id").isNotNull())
     .where(col("parameter").isNotNull())
     .withColumn("rule_enabled", coalesce(col("enabled"), lit(False)))
     .withColumn("display_name", coalesce(col("display_name"), col("parameter")))
@@ -588,10 +594,10 @@ processed_readings = (
     )
     .select(
         "sensor_id",
+        "cluster_id",
+        "local_sensor_id",
         "sensor_type",
         "event_time",
-        "location_id",
-        "location_name",
         "parameter",
         "display_name",
         "value",
@@ -678,8 +684,8 @@ alert_output = alerts.select(
         struct(
             "alert_id",
             "sensor_id",
-            "location_id",
-            "location_name",
+            "cluster_id",
+            "local_sensor_id",
             "parameter",
             "value",
             "unit",
@@ -702,7 +708,7 @@ processed_readings_for_aggregates = processed_readings.withWatermark(
 
 hourly_aggregates = (
     processed_readings_for_aggregates.groupBy(
-        "location_id",
+        "cluster_id",
         "parameter",
         "unit",
         time_window(col("event_time"), "1 hour"),
@@ -718,7 +724,7 @@ hourly_aggregates = (
     .withColumn("bucket_month", date_format(col("window_start"), "yyyy-MM"))
     .withColumn("updated_at", current_timestamp())
     .select(
-        "location_id",
+        "cluster_id",
         "parameter",
         "bucket_month",
         "window_start",
@@ -734,7 +740,7 @@ hourly_aggregates = (
 
 daily_aggregates = (
     processed_readings_for_aggregates.groupBy(
-        "location_id",
+        "cluster_id",
         "parameter",
         "unit",
         time_window(col("event_time"), "1 day"),
@@ -750,7 +756,7 @@ daily_aggregates = (
     .withColumn("bucket_year", date_format(col("day"), "yyyy").cast("int"))
     .withColumn("updated_at", current_timestamp())
     .select(
-        "location_id",
+        "cluster_id",
         "parameter",
         "bucket_year",
         "day",

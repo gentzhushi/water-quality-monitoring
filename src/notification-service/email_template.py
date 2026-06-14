@@ -23,6 +23,16 @@ def reading_text(alert):
     return str(value)
 
 
+def cluster_text(alert):
+    cluster_id = get_value(alert, "cluster_id")
+    local_sensor_id = get_value(alert, "local_sensor_id", "")
+
+    if local_sensor_id and local_sensor_id != "unknown":
+        return f"{cluster_id} / {local_sensor_id}"
+
+    return cluster_id
+
+
 def threshold_text(alert):
     low = alert.get("threshold_low")
     high = alert.get("threshold_high")
@@ -71,8 +81,7 @@ def severity_style(alert):
 
 def build_subject(alert):
     alert_type = get_value(alert, "alert_type")
-    location_name = get_value(alert, "location_name")
-    return f"Water quality alert: {alert_type} at {location_name}"
+    return f"Water quality alert: {alert_type} in cluster {get_value(alert, 'cluster_id')}"
 
 
 def build_text(alert):
@@ -82,7 +91,7 @@ def build_text(alert):
         f"Alert type: {get_value(alert, 'alert_type')}",
         f"Severity: {get_value(alert, 'severity')}",
         f"Sensor: {get_value(alert, 'sensor_id')}",
-        f"Location: {get_value(alert, 'location_name')} ({get_value(alert, 'location_id')})",
+        f"Cluster: {cluster_text(alert)}",
         f"Parameter: {get_value(alert, 'parameter')}",
         f"Reading: {reading_text(alert)}",
         f"Threshold: {threshold_text(alert)}",
@@ -152,13 +161,9 @@ def build_summary_table(alert):
 
 
 def build_details_table(alert):
-    location = (
-        f"{get_value(alert, 'location_name')} "
-        f"({get_value(alert, 'location_id')})"
-    )
     rows = [
         ("Sensor", get_value(alert, "sensor_id")),
-        ("Location", location),
+        ("Cluster", cluster_text(alert)),
         ("Parameter", get_value(alert, "parameter")),
         ("Event time", get_value(alert, "event_time")),
         ("Processed at", get_value(alert, "processed_at")),
@@ -175,7 +180,7 @@ def build_details_table(alert):
 def build_html(alert):
     style = severity_style(alert)
     alert_type = get_value(alert, "alert_type")
-    location_name = get_value(alert, "location_name")
+    cluster = cluster_text(alert)
     message = get_value(alert, "message", "")
 
     return f"""<!doctype html>
@@ -194,7 +199,7 @@ def build_html(alert):
                   Water Quality Alert
                 </h1>
                 <div style="font-family:Arial, Helvetica, sans-serif; font-size:15px; line-height:22px; color:#fff7ed;">
-                  {escape(alert_type)} at {escape(location_name)}
+                  {escape(alert_type)} in {escape(cluster)}
                 </div>
               </td>
             </tr>

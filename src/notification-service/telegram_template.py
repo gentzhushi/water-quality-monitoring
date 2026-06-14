@@ -47,14 +47,14 @@ def threshold_text(alert):
     return text
 
 
-def location_text(alert):
-    location_name = get_value(alert, "location_name")
-    location_id = get_value(alert, "location_id", "")
+def cluster_text(alert):
+    cluster_id = get_value(alert, "cluster_id")
+    local_sensor_id = get_value(alert, "local_sensor_id", "")
 
-    if location_id and location_id != "unknown":
-        return f"{location_name} ({location_id})"
+    if local_sensor_id and local_sensor_id != "unknown":
+        return f"{cluster_id} / {local_sensor_id}"
 
-    return location_name
+    return cluster_id
 
 
 def build_summary_section(alert):
@@ -69,11 +69,11 @@ def build_summary_section(alert):
     )
 
 
-def build_location_section(alert):
+def build_cluster_section(alert):
     return "\n".join(
         [
-            "<b>Location</b>",
-            escape_text(location_text(alert)),
+            "<b>Cluster</b>",
+            escape_text(cluster_text(alert)),
             f"Sensor: {code_text(get_value(alert, 'sensor_id'))}",
         ]
     )
@@ -98,7 +98,7 @@ def build_telegram_message(alert):
             "",
             build_summary_section(alert),
             "",
-            build_location_section(alert),
+            build_cluster_section(alert),
             "",
             build_timing_section(alert),
         ]

@@ -368,8 +368,17 @@ def api_alerts(
 
 
 @app.get("/api/alarms")
-def api_alarms(location_id: str = DEFAULT_LOCATION_ID, bucket_date: str | None = None):
-    alerts = api_alerts(location_id=location_id, bucket_date=bucket_date, limit=500)["items"]
+def api_alarms(
+    location_id: str = DEFAULT_LOCATION_ID,
+    bucket_date: str | None = None,
+    sensor_id: str | None = None,
+):
+    alerts = api_alerts(
+        location_id=location_id,
+        bucket_date=bucket_date,
+        sensor_id=sensor_id,
+        limit=500,
+    )["items"]
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     now = datetime.now(timezone.utc)
 

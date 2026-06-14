@@ -1,9 +1,9 @@
 {
-  "trained_at": "2026-06-14T17:07:19.184926+00:00",
+  "trained_at": "2026-06-14T19:00:45.783216+00:00",
   "model_version": "synthetic-rf-v1",
   "model_type": "RandomForestClassifier",
-  "model_path": "/workspace/src/ml/artifacts/early_warning_random_forest.joblib",
-  "feature_schema_path": "/workspace/src/ml/artifacts/feature_schema.json",
+  "model_path": "/ml/artifacts/early_warning_random_forest.joblib",
+  "feature_schema_path": "/ml/artifacts/feature_schema.json",
   "training_rows": 56160,
   "test_rows": 14040,
   "accuracy": 0.9424,

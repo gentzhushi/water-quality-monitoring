@@ -1,6 +1,6 @@
 # Early-Warning ML Training Report
 
-- Trained at: `2026-06-14T17:07:19.184926+00:00`
+- Trained at: `2026-06-14T19:00:45.783216+00:00`
 - Model: `RandomForestClassifier`
 - Version: `synthetic-rf-v1`
 - Training rows: `56160`

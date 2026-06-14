@@ -6,10 +6,10 @@ services:
       - PYTHONUNBUFFERED=1
     command:
       - --cluster-id=C1
-      - --base-url=http://server
+      - --base-url=http://sensor-server
       - --config-interval-s=5
     depends_on:
-      server:
+      sensor-server:
         condition: service_healthy
 
   sensor-cluster-2:
@@ -19,13 +19,13 @@ services:
       - PYTHONUNBUFFERED=1
     command:
       - --cluster-id=C2
-      - --base-url=http://server
+      - --base-url=http://sensor-server
       - --config-interval-s=5
     depends_on:
-      server:
+      sensor-server:
         condition: service_healthy
 
-  server:
+  sensor-server:
     build:
       context: ./sensor-server
     environment:
@@ -38,6 +38,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 0s
+    depends_on:
+      cassandra:
+        condition: service_healthy
 
   dashboard-backend:
     build:

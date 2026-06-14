@@ -1,10 +1,15 @@
 from   fastapi            import FastAPI, HTTPException, Request
 from   fastapi.responses  import HTMLResponse
 from   fastapi.templating import Jinja2Templates
+import os
 from   pydantic           import BaseModel
 import re
 from   typing             import Any, Dict, List
 import uvicorn
+
+
+CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
+CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
 
 
 app = FastAPI()
@@ -48,6 +53,63 @@ SENSOR_CONFIGS: dict[str, dict[str, SensorConfigPayload]] = {
     },
     "C2": {}
 }
+
+
+def row_to_config(row) -> SensorConfigPayload:
+    return SensorConfigPayload(
+        min=row.min,
+        max=row.max,
+        type=row.sensor_type,
+        unit=row.unit,
+        measure_interval_s=row.measure_interval_s,
+        config_interval_s=row.config_interval_s,
+    )
+
+
+def get_cluster_configs(cluster_id: str) -> dict[str, SensorConfigPayload]:
+    rows = session.execute(
+        """
+        SELECT sensor_id, min, max, sensor_type, unit, measure_interval_s, config_interval_s
+        FROM sensor_configs_by_cluster
+        WHERE cluster_id = %s
+        """,
+        (cluster_id,),
+    )
+    return {row.sensor_id: row_to_config(row) for row in rows}
+
+
+def get_sensor_config(cluster_id: str, sensor_id: str) -> SensorConfigPayload | None:
+    row = session.execute(
+        """
+        SELECT min, max, sensor_type, unit, measure_interval_s, config_interval_s
+        FROM sensor_configs_by_cluster
+        WHERE cluster_id = %s AND sensor_id = %s
+        """,
+        (cluster_id, sensor_id),
+    ).one()
+    return row_to_config(row) if row else None
+
+
+def save_sensor_config(cluster_id: str, sensor_id: str, cfg: SensorConfigPayload) -> None:
+    session.execute(
+        """
+        INSERT INTO sensor_configs_by_cluster (
+            cluster_id, sensor_id, min, max, sensor_type, unit,
+            measure_interval_s, config_interval_s, updated_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            cluster_id,
+            sensor_id,
+            cfg.min,
+            cfg.max,
+            cfg.type,
+            cfg.unit,
+            cfg.measure_interval_s,
+            cfg.config_interval_s,
+            datetime.now(UTC),
+        ),
+    )
 
 
 @app.post("/sensor-measurement")
@@ -102,7 +164,7 @@ def get_config(sid: str):
     return {"config": SENSOR_CONFIGS[cid][sensor_id]}
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/control-panel", response_class=HTMLResponse)
 def get_dashboard(request: Request):
     context_data = {
         "request": request,

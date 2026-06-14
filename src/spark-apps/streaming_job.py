@@ -1,5 +1,6 @@
 import os
 
+from ml_prediction import write_ml_predictions
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     abs as spark_abs,
@@ -46,7 +47,8 @@ ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "water-quality-alerts")
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = os.getenv("CASSANDRA_PORT", "9042")
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
-CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v4"
+KAFKA_MAX_OFFSETS_PER_TRIGGER = os.getenv("KAFKA_MAX_OFFSETS_PER_TRIGGER", "600")
+CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v5"
 DEFAULT_THRESHOLD_SCALE = 1.0
 DEFAULT_RATE_CHANGE_SCALE = 1.0
 
@@ -69,6 +71,9 @@ spark = (
     .config("spark.sql.session.timeZone", "UTC")
     .config("spark.cassandra.connection.host", CASSANDRA_HOST)
     .config("spark.cassandra.connection.port", CASSANDRA_PORT)
+    .config("spark.cassandra.connection.timeoutMS", "30000")
+    .config("spark.cassandra.read.timeoutMS", "30000")
+    .config("spark.cassandra.output.consistency.level", "LOCAL_ONE")
     .getOrCreate()
 )
 spark.sparkContext.setLogLevel("WARN")
@@ -89,6 +94,10 @@ def write_to_cassandra(dataframe, table_name):
 
 def batch_has_rows(dataframe):
     return len(dataframe.take(1)) > 0
+
+
+def write_ml_predictions_to_cassandra(batch_df, batch_id):
+    write_ml_predictions(batch_df, batch_id, CASSANDRA_KEYSPACE)
 
 
 def write_processed_readings(batch_df, _batch_id):
@@ -514,6 +523,7 @@ raw_readings = (
     .option("subscribe", READINGS_TOPIC)
     .option("startingOffsets", "latest")
     .option("failOnDataLoss", "false")
+    .option("maxOffsetsPerTrigger", KAFKA_MAX_OFFSETS_PER_TRIGGER)
     .load()
 )
 
@@ -814,6 +824,14 @@ ai_scores_query = (
     .foreachBatch(write_ai_scores_and_metrics)
     .option("checkpointLocation", f"{CHECKPOINT_BASE}/ai-scores-and-metrics-cassandra")
     .queryName("ai_scores_and_metrics_to_cassandra")
+    .start()
+)
+
+ml_predictions_query = (
+    processed_readings.writeStream.outputMode("append")
+    .foreachBatch(write_ml_predictions_to_cassandra)
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/ml-predictions-cassandra")
+    .queryName("ml_predictions_to_cassandra")
     .start()
 )
 

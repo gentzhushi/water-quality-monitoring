@@ -31,6 +31,8 @@ data/*
 *.csv
 *.parquet
 *.jsonl
+!src/ml/data/
+!src/ml/data/water_quality_training.csv
 
 # Logs
 *.log

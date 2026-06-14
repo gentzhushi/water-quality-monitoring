@@ -1,0 +1,83 @@
+{
+  "model_name": "early_warning_random_forest",
+  "model_version": "synthetic-rf-v1",
+  "model_type": "RandomForestClassifier",
+  "target": "target_class",
+  "window_minutes": 5,
+  "forecast_horizon_minutes": 10,
+  "parameters": [
+    "pH",
+    "temperature",
+    "turbidity",
+    "conductivity",
+    "dissolved_oxygen",
+    "ORP"
+  ],
+  "feature_columns": [
+    "ph_latest",
+    "ph_mean_5m",
+    "ph_std_5m",
+    "ph_slope_5m",
+    "ph_threshold_distance",
+    "temperature_latest",
+    "temperature_mean_5m",
+    "temperature_std_5m",
+    "temperature_slope_5m",
+    "temperature_threshold_distance",
+    "turbidity_latest",
+    "turbidity_mean_5m",
+    "turbidity_std_5m",
+    "turbidity_slope_5m",
+    "turbidity_threshold_distance",
+    "conductivity_latest",
+    "conductivity_mean_5m",
+    "conductivity_std_5m",
+    "conductivity_slope_5m",
+    "conductivity_threshold_distance",
+    "dissolved_oxygen_latest",
+    "dissolved_oxygen_mean_5m",
+    "dissolved_oxygen_std_5m",
+    "dissolved_oxygen_slope_5m",
+    "dissolved_oxygen_threshold_distance",
+    "orp_latest",
+    "orp_mean_5m",
+    "orp_std_5m",
+    "orp_slope_5m",
+    "orp_threshold_distance",
+    "warning_count_5m",
+    "critical_count_5m",
+    "max_threshold_distance",
+    "avg_threshold_distance"
+  ],
+  "risk_levels": [
+    {
+      "level": "LOW",
+      "min": 0.0,
+      "max": 0.35
+    },
+    {
+      "level": "MEDIUM",
+      "min": 0.35,
+      "max": 0.6
+    },
+    {
+      "level": "HIGH",
+      "min": 0.6,
+      "max": 0.85
+    },
+    {
+      "level": "CRITICAL",
+      "min": 0.85,
+      "max": 1.01
+    }
+  ],
+  "scenario_classes": [
+    "normal",
+    "storm_runoff",
+    "oxygen_depletion",
+    "chemical_shift",
+    "sensor_fault",
+    "gradual_degradation"
+  ],
+  "notes": "This model is trained offline on synthetic scenario data. It predicts early warning risk, not exact future sensor values."
+}

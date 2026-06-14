@@ -278,6 +278,44 @@ CREATE TABLE IF NOT EXISTS pipeline_metrics_by_minute (
       'compaction_window_size': '7'
   };
 
+-- Early-warning ML predictions for one location on one day.
+CREATE TABLE IF NOT EXISTS ml_predictions_by_location_minute (
+    location_id text,
+    prediction_date date,
+    prediction_time timestamp,
+    forecast_horizon_minutes int,
+    risk_score double,
+    risk_level text,
+    predicted_event_type text,
+    class_probabilities text,
+    explanation text,
+    model_name text,
+    model_version text,
+    computed_at timestamp,
+    PRIMARY KEY ((location_id, prediction_date), prediction_time)
+) WITH CLUSTERING ORDER BY (prediction_time DESC)
+  AND default_time_to_live = 157680000
+  AND compaction = {
+      'class': 'TimeWindowCompactionStrategy',
+      'compaction_window_unit': 'DAYS',
+      'compaction_window_size': '7'
+  };
+
+-- Latest early-warning ML prediction for each location.
+CREATE TABLE IF NOT EXISTS latest_ml_predictions_by_location (
+    location_id text PRIMARY KEY,
+    prediction_time timestamp,
+    forecast_horizon_minutes int,
+    risk_score double,
+    risk_level text,
+    predicted_event_type text,
+    class_probabilities text,
+    explanation text,
+    model_name text,
+    model_version text,
+    computed_at timestamp
+);
+
 -- Demo rules for the supported water-quality parameters.
 INSERT INTO parameter_rules_by_parameter (
     parameter, display_name, unit, normal_low, normal_high, critical_low,

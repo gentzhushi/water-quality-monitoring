@@ -102,16 +102,6 @@ services:
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
       - DYNAMIC_CONFIG_ENABLED=true
 
-  mock-producer:
-    build:
-      context: ./mock-producer
-    depends_on:
-      kafka:
-        condition: service_healthy
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - KAFKA_TOPIC=water-quality-readings
-
   notification-service:
     build:
       context: ./notification-service
@@ -209,8 +199,6 @@ services:
       timeout: 10s
       retries: 15
       start_period: 60s
-
-
 
 volumes:
   cassandra_data:

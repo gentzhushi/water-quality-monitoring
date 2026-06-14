@@ -96,14 +96,16 @@ Current reading message format:
 
 Spark treats `sensor_id`, `sensor_type`, `value`, and `timestamp` as required fields.
 
-The mock producer sends both pH and temperature messages every 1-2 seconds. It intentionally includes normal and abnormal values so Spark can create alerts.
+The mock producer sends pH, temperature, turbidity, conductivity, dissolved oxygen, and ORP messages every 1-2 seconds. It intentionally includes normal and abnormal values so Spark can create alerts.
 
-Alert thresholds:
+Alert thresholds are demo rules stored in Cassandra table `parameter_rules_by_parameter`. They are used by Spark for generic low/high alerting and explainable anomaly scores, and they are not official water-quality standards. The seeded demo parameters are:
 
-- pH below `6.5`: `LOW_PH`
-- pH above `8.5`: `HIGH_PH`
-- temperature below `0`: `LOW_TEMPERATURE`
-- temperature above `35`: `HIGH_TEMPERATURE`
+- `pH`
+- `temperature`
+- `turbidity`
+- `conductivity`
+- `dissolved_oxygen`
+- `ORP`
 
 Alert messages include the sensor id, location id, location name, parameter, value, unit, alert type, severity, expected threshold range, event time, and processing time. The notification service uses this Kafka message directly and does not query Cassandra when sending an email.
 
@@ -167,27 +169,14 @@ To manually test Spark, use Kafka UI to produce this message to `water-quality-r
 
 ```json
 {
-  "sensor_id": "mock_sensor_01",
-  "sensor_type": "pH",
-  "value": 9.2,
+  "sensor_id": "mock_sensor_03",
+  "sensor_type": "turbidity",
+  "value": 24,
   "timestamp": "2026-06-07T12:00:00Z"
 }
 ```
 
-Expected result: Spark writes a `HIGH_PH` alert to `water-quality-alerts`.
-
-Another manual test:
-
-```json
-{
-  "sensor_id": "mock_sensor_02",
-  "sensor_type": "temperature",
-  "value": 42,
-  "timestamp": "2026-06-07T12:00:00Z"
-}
-```
-
-Expected result: Spark writes a `HIGH_TEMPERATURE` alert to `water-quality-alerts`.
+Expected result: Spark writes a `HIGH_TURBIDITY` alert to `water-quality-alerts`.
 
 ## Useful logs
 
@@ -217,11 +206,11 @@ The dashboard is read-only and is separate from the sensor control dashboard. It
 
 AI scores are explainable statistical scores rather than a trained ML model. Spark combines:
 
-- threshold distance: how far the value is outside the allowed pH/temperature range
+- threshold distance: how far the value is outside the configured parameter range
 - statistical difference: how unusual the value is compared with the recent rolling window
 - rate of change: how quickly the value moved compared with the previous reading
 
-The final anomaly level is `NORMAL`, `WATCH`, `WARNING`, or `CRITICAL`. A rule breach is always raised to at least `WARNING`, and a critical pH/temperature breach is raised to `CRITICAL`, so the dashboard label matches the explanation shown to the user.
+The final anomaly level is `NORMAL`, `WATCH`, `WARNING`, or `CRITICAL`. A configured rule breach is always raised to at least `WARNING`, and a configured critical breach is raised to `CRITICAL`, so the dashboard label matches the explanation shown to the user.
 
 ## Later integration
 

@@ -120,6 +120,16 @@ def get_first_sensor_id(location_id: str = DEFAULT_LOCATION_ID) -> str | None:
     return sensors[0]["sensor_id"]
 
 
+def get_parameter_rules() -> dict[str, dict[str, Any]]:
+    rows = query_rows(
+        """
+        SELECT parameter, display_name, unit
+        FROM parameter_rules_by_parameter
+        """
+    )
+    return {row["parameter"]: row for row in rows}
+
+
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/digital-twin")
@@ -162,6 +172,7 @@ def api_latest_readings(location_id: str = DEFAULT_LOCATION_ID):
 def api_overview(location_id: str = DEFAULT_LOCATION_ID):
     sensors = get_sensors(location_id)
     latest = api_latest_readings(location_id)["items"]
+    parameter_rules = get_parameter_rules()
     latest_ai = query_rows(
         """
         SELECT location_id, parameter, sensor_id, event_time, value, unit, anomaly_score,
@@ -208,15 +219,40 @@ def api_overview(location_id: str = DEFAULT_LOCATION_ID):
     )
     system_status = "CRITICAL" if critical else ("WARNING" if warning else "NORMAL")
 
-    latest_by_parameter: dict[str, list[float]] = {}
+    latest_by_parameter: dict[str, dict[str, Any]] = {}
     for item in latest:
-        latest_by_parameter.setdefault(item["parameter"], []).append(item["value"])
+        parameter = item["parameter"]
+        rule = parameter_rules.get(parameter, {})
+        group = latest_by_parameter.setdefault(
+            parameter,
+            {
+                "parameter": parameter,
+                "display_name": rule.get("display_name") or parameter,
+                "unit": item.get("unit") or rule.get("unit"),
+                "values": [],
+            },
+        )
+        group["values"].append(item["value"])
 
     def average(parameter: str) -> float | None:
-        values = latest_by_parameter.get(parameter, [])
+        group = latest_by_parameter.get(parameter)
+        values = group["values"] if group else []
         if not values:
             return None
         return round(sum(values) / len(values), 3)
+
+    parameter_averages = []
+    for group in latest_by_parameter.values():
+        values = group["values"]
+        parameter_averages.append(
+            {
+                "parameter": group["parameter"],
+                "display_name": group["display_name"],
+                "unit": group["unit"],
+                "average_value": round(sum(values) / len(values), 3),
+            }
+        )
+    parameter_averages.sort(key=lambda item: item["display_name"])
 
     return {
         "location_id": location_id,
@@ -225,6 +261,7 @@ def api_overview(location_id: str = DEFAULT_LOCATION_ID):
         "active_alert_count": len(recent_alerts),
         "average_ph": average("pH"),
         "average_temperature": average("temperature"),
+        "parameter_averages": parameter_averages,
         "latest_metric": metrics[0] if metrics else None,
         "latest_readings": latest,
         "latest_ai": latest_ai,

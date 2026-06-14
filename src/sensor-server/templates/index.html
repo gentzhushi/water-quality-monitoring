@@ -14,8 +14,6 @@
             --text-1:      #1a1a18;
             --text-2:      #555550;
             --text-3:      #888880;
-            --c-ph:        #3b82f6;
-            --c-temp:      #ef4444;
             --c-default:   #22c55e;
             --r-sm:        6px;
             --r-md:        8px;
@@ -58,6 +56,7 @@
             flex-wrap: wrap;
             margin-bottom: 18px;
         }
+        #stat-types { display: contents; }
         .stat-chip {
             background: var(--surface);
             border: 0.5px solid var(--border);
@@ -150,14 +149,12 @@
             border-radius: var(--r-lg);
             padding: 16px;
             border: 0.5px solid var(--border);
-            border-left: 4px solid var(--c-default);
+            border-left: 4px solid var(--sensor-color, var(--c-default));
             display: flex;
             flex-direction: column;
             transition: box-shadow .15s;
         }
         .sensor-card:hover            { box-shadow: 0 4px 14px rgba(0,0,0,.07); }
-        .sensor-card.ph               { border-left-color: var(--c-ph); }
-        .sensor-card.temp             { border-left-color: var(--c-temp); }
         .sensor-card[style*="none"]   { display: none !important; }
 
         .sensor-id   { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
@@ -336,10 +333,8 @@
     <!-- Stats bar -->
     <div class="stats-bar">
         <div class="stat-chip"><strong id="stat-total">—</strong>Total</div>
-        <div class="stat-chip"><strong id="stat-ph">—</strong>pH</div>
-        <div class="stat-chip"><strong id="stat-temp">—</strong>Temperature</div>
-        <div class="stat-chip"><strong id="stat-other">—</strong>Other</div>
         <div class="stat-chip"><strong id="stat-clusters">—</strong>Clusters</div>
+        <div id="stat-types" class="stats-bar"></div>
     </div>
 
     <!-- Filter bar -->
@@ -356,13 +351,11 @@
         {% for sid, config in cluster_sensors.items() %}
         {% set full_sid = cluster_id ~ sid %}
         {% set type_text = config.type or 'unknown' %}
-        {% set type_lower = type_text.lower() %}
-        {% set stype = 'ph' if 'ph' in type_lower else ('temp' if 'temp' in type_lower or 'temperature' in type_lower else 'other') %}
-        <div class="sensor-card {{ stype }}"
+        <div class="sensor-card"
              data-sid="{{ full_sid }}"
              data-local-id="{{ sid }}"
              data-cluster-id="{{ cluster_id }}"
-             data-type="{{ stype }}"
+             data-type="{{ type_text }}"
              data-type-label="{{ type_text }}"
              data-unit="{{ config.unit or '' }}"
              data-min="{{ config.min if config.min is not none else '' }}"
@@ -590,6 +583,14 @@ const filterState  = {
     measureMax: '',
     syncMax: '',
 };
+const TYPE_COLORS = {
+    ph: '#3b82f6',
+    temperature: '#ef4444',
+    turbidity: '#0ea5e9',
+    conductivity: '#9333ea',
+    dissolved_oxygen: '#16a34a',
+    orp: '#f59e0b',
+};
 
 // ── Small helpers ──────────────────────────────────────
 const sensorCards = () => [...document.querySelectorAll('.sensor-card[data-sid]')];
@@ -656,12 +657,24 @@ function parseCsvLine(line) {
 }
 
 // ── Colour helper ──────────────────────────────────────
+function typeKey(value) {
+    return String(value || 'unknown').trim().toLowerCase();
+}
+
+function typeColor(typeLabel) {
+    return TYPE_COLORS[typeKey(typeLabel)] || '#22c55e';
+}
+
+function applySensorColors() {
+    sensorCards().forEach(card => {
+        card.style.setProperty('--sensor-color', typeColor(card.dataset.typeLabel));
+    });
+}
+
 function cardColor(sid) {
     const card = document.querySelector(`.sensor-card[data-sid="${sid}"]`);
     if (!card) return '#22c55e';
-    if (card.classList.contains('ph'))   return '#3b82f6';
-    if (card.classList.contains('temp')) return '#ef4444';
-    return '#22c55e';
+    return typeColor(card.dataset.typeLabel);
 }
 
 // ── Sparklines ─────────────────────────────────────────
@@ -728,15 +741,23 @@ function loadAllSparklines() {
 // ── Stats bar ──────────────────────────────────────────
 function updateStats() {
     const cards = sensorCards();
-    const counts = { ph: 0, temp: 0, other: 0 };
+    const counts = {};
     const clusters = new Set();
-    cards.forEach(c => counts[c.dataset.type]++);
-    cards.forEach(c => clusters.add(c.dataset.clusterId));
+    cards.forEach(card => {
+        const typeLabel = card.dataset.typeLabel || 'unknown';
+        counts[typeLabel] = (counts[typeLabel] || 0) + 1;
+        clusters.add(card.dataset.clusterId);
+    });
     document.getElementById('stat-total').textContent = cards.length;
-    document.getElementById('stat-ph').textContent    = counts.ph;
-    document.getElementById('stat-temp').textContent  = counts.temp;
-    document.getElementById('stat-other').textContent = counts.other;
     document.getElementById('stat-clusters').textContent = clusters.size;
+    document.getElementById('stat-types').innerHTML = Object.entries(counts)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([typeLabel, count]) => `
+            <div class="stat-chip">
+                <strong>${count}</strong>${typeLabel}
+            </div>
+        `)
+        .join('');
 }
 
 // ── Filter & search ────────────────────────────────────
@@ -1137,6 +1158,7 @@ toggle.addEventListener('change', () => {
 });
 
 // ── Init ───────────────────────────────────────────────
+applySensorColors();
 populateFilterOptions();
 updateStats();
 applyFilters();

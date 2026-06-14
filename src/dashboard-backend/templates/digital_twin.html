@@ -540,12 +540,15 @@ async function loadSensors() {
 async function loadOverview() {
     const data = await getJson(`/api/overview?location_id=${encodeURIComponent(state.locationId)}`);
     const metric = data.latest_metric || {};
+    const parameterKpis = (data.parameter_averages || []).map(item => [
+        `Avg ${item.display_name || item.parameter}`,
+        `${fmt(item.average_value)}${item.unit ? ` ${item.unit}` : ''}`
+    ]);
     document.getElementById('kpi-grid').innerHTML = [
         ['System Status', statusPill(data.system_status)],
         ['Active Sensors', fmt(data.active_sensor_count, 0)],
         ['Recent Alert Events', fmt(data.active_alert_count, 0)],
-        ['Average pH', fmt(data.average_ph)],
-        ['Average Temp', `${fmt(data.average_temperature)} C`],
+        ...parameterKpis,
         ['Avg Latency', `${fmt(metric.avg_event_latency_ms, 0)} ms`],
     ].map(([label, value]) => `
         <div class="card kpi">

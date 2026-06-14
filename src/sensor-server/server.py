@@ -1,7 +1,7 @@
 from  cassandra.cluster  import Cluster, Session
 from  datetime           import UTC, datetime
 from  fastapi            import FastAPI, HTTPException, Request
-from  fastapi.responses  import HTMLResponse
+from  fastapi.responses  import HTMLResponse, RedirectResponse
 from  fastapi.templating import Jinja2Templates
 from  functools          import lru_cache
 from  pydantic           import BaseModel
@@ -17,6 +17,11 @@ CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
 CASSANDRA_CONNECT_RETRIES = int(os.getenv("CASSANDRA_CONNECT_RETRIES", "12"))
 CASSANDRA_CONNECT_DELAY_SEC = float(os.getenv("CASSANDRA_CONNECT_DELAY_SEC", "5"))
+import re
+from typing import Any
+
+
+
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -34,10 +39,10 @@ class SensorConfigPayload(BaseModel):
 class MeasurementPayload(BaseModel):
     sensor_id:   str
     sensor_type: str
-    value:       float
+    value: float | None = None
 
 
-DATA: List[Dict[str, Any]] = []
+DATA: list[dict[str, Any]] = []
 
 
 @lru_cache(maxsize=1)
@@ -164,10 +169,10 @@ def get_sensors(cluster_id: str):
 
     return [
         {
-            "sensor_id": sid,
-            **cfg.model_dump(),
+            "sensor_id": sensor_id,
+            **config.model_dump(),
         }
-        for sid, cfg in get_cluster_configs(cluster_id).items()
+        for sensor_id, config in get_cluster_configs(cluster_id).items()
     ]
 
 
@@ -175,34 +180,37 @@ def split_sensor_ref(sensor_ref: str) -> tuple[str, str]:
     if not re.match(r"^C\dS\d{3}$", sensor_ref):
         raise HTTPException(status_code=400, detail="Sensor ID must match `CxSyyy`")
 
-    s_index = sensor_ref.find("S")
-    return sensor_ref[:s_index], sensor_ref[s_index:]
+    sensor_index = sensor_ref.find("S")
+    return sensor_ref[:sensor_index], sensor_ref[sensor_index:]
 
 
 @app.put("/sensors-by-id/{sid}")
 def put_config(sid: str, payload: SensorConfigPayload):
-    cid, sensor_id = split_sensor_ref(sid)
-    existing_config = get_sensor_config(cid, sensor_id)
+    cluster_id, sensor_id = split_sensor_ref(sid)
+    existing_config = get_sensor_config(cluster_id, sensor_id)
 
     if existing_config is None:
-        save_sensor_config(cid, sensor_id, payload)
+        save_sensor_config(cluster_id, sensor_id, payload)
         return {"status": "ok"}
 
     update_data = payload.model_dump(exclude_unset=True)
     updated_config = existing_config.model_copy(update=update_data)
-    save_sensor_config(cid, sensor_id, updated_config)
+    save_sensor_config(cluster_id, sensor_id, updated_config)
     return {"status": "ok"}
 
 
 @app.get("/sensors-by-id/{sid}")
 def get_config(sid: str):
-    cid, sensor_id = split_sensor_ref(sid)
-    config = get_sensor_config(cid, sensor_id)
+    cluster_id, sensor_id = split_sensor_ref(sid)
+    config = get_sensor_config(cluster_id, sensor_id)
     if config is None:
         raise HTTPException(status_code=404, detail="Sensor doesn't exist.")
 
     return {"config": config}
 
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/control-panel")
 
 @app.get("/dashboard", response_class=HTMLResponse)
 @app.get("/control-panel", response_class=HTMLResponse)
@@ -211,7 +219,6 @@ def get_dashboard(request: Request):
         "request": request,
         "sensors": get_all_sensor_configs(),
     }
-
     return templates.TemplateResponse(request, "index.html", context_data)
 
 
@@ -221,7 +228,7 @@ def dump_data():
 
 
 @app.get("/dump/sensor-configs")
-def dump_cfgs():
+def dump_configs():
     return {"configs": get_all_sensor_configs()}
 
 

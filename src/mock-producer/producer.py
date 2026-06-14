@@ -10,8 +10,38 @@ from confluent_kafka import Producer
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 TOPIC = os.getenv("KAFKA_TOPIC", "water-quality-readings")
 
-PH_VALUES = [6.9, 7.2, 7.4, 8.1, 6.2, 8.9]
-TEMPERATURE_VALUES = [18.5, 21.0, 23.5, 28.2, -2.0, 42.0]
+SENSOR_PROFILES = [
+    {
+        "sensor_id": "mock_sensor_01",
+        "sensor_type": "pH",
+        "values": [6.9, 7.2, 7.4, 8.1, 6.2, 8.9, 5.8, 9.2],
+    },
+    {
+        "sensor_id": "mock_sensor_02",
+        "sensor_type": "temperature",
+        "values": [18.5, 21.0, 23.5, 28.2, -2.0, 36.5, -7.0, 42.0],
+    },
+    {
+        "sensor_id": "mock_sensor_03",
+        "sensor_type": "turbidity",
+        "values": [1.2, 2.1, 3.5, 4.0, 6.5, 9.0, 24.0],
+    },
+    {
+        "sensor_id": "mock_sensor_04",
+        "sensor_type": "conductivity",
+        "values": [250.0, 600.0, 900.0, 1200.0, 35.0, 1800.0, 2600.0],
+    },
+    {
+        "sensor_id": "mock_sensor_05",
+        "sensor_type": "dissolved_oxygen",
+        "values": [6.2, 7.1, 8.4, 9.3, 4.2, 2.6, 15.5, 19.0],
+    },
+    {
+        "sensor_id": "mock_sensor_06",
+        "sensor_type": "ORP",
+        "values": [220.0, 310.0, 420.0, 480.0, 120.0, 40.0, 720.0],
+    },
+]
 
 
 def utc_now() -> str:
@@ -47,8 +77,12 @@ def main() -> None:
 
     while True:
         messages = [
-            reading("mock_sensor_01", "pH", random.choice(PH_VALUES)),
-            reading("mock_sensor_02", "temperature", random.choice(TEMPERATURE_VALUES)),
+            reading(
+                profile["sensor_id"],
+                profile["sensor_type"],
+                random.choice(profile["values"]),
+            )
+            for profile in SENSOR_PROFILES
         ]
 
         for message in messages:

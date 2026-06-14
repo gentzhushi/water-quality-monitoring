@@ -6,6 +6,7 @@ from pyspark.sql.functions import (
     avg,
     col,
     coalesce,
+    concat,
     concat_ws,
     count,
     current_timestamp,
@@ -21,6 +22,7 @@ from pyspark.sql.functions import (
     min as spark_min,
     row_number,
     round as spark_round,
+    regexp_replace,
     sha2,
     stddev_samp,
     struct,
@@ -28,6 +30,7 @@ from pyspark.sql.functions import (
     to_date,
     to_json,
     to_timestamp,
+    upper,
     unix_timestamp,
     when,
     window as time_window,
@@ -43,16 +46,9 @@ ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "water-quality-alerts")
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = os.getenv("CASSANDRA_PORT", "9042")
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
-CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v3"
-
-PH_LOW_LIMIT = 6.5
-PH_HIGH_LIMIT = 8.5
-TEMPERATURE_LOW_LIMIT = 0.0
-TEMPERATURE_HIGH_LIMIT = 35.0
-PH_MAX_EXPECTED_DISTANCE = 1.0
-TEMPERATURE_MAX_EXPECTED_DISTANCE = 10.0
-PH_MAX_EXPECTED_RATE_CHANGE = 1.0
-TEMPERATURE_MAX_EXPECTED_RATE_CHANGE = 10.0
+CHECKPOINT_BASE = "/tmp/water-quality-checkpoints/v4"
+DEFAULT_THRESHOLD_SCALE = 1.0
+DEFAULT_RATE_CHANGE_SCALE = 1.0
 
 
 # Kafka message schema
@@ -281,33 +277,30 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
             )
             .withColumn(
                 "threshold_distance",
-                when((col("parameter") == "pH") & (col("value") < PH_LOW_LIMIT), lit(PH_LOW_LIMIT) - col("value"))
-                .when((col("parameter") == "pH") & (col("value") > PH_HIGH_LIMIT), col("value") - lit(PH_HIGH_LIMIT))
-                .when(
-                    (col("parameter") == "temperature")
-                    & (col("value") < TEMPERATURE_LOW_LIMIT),
-                    lit(TEMPERATURE_LOW_LIMIT) - col("value"),
+                when(
+                    col("normal_low").isNotNull() & (col("value") < col("normal_low")),
+                    col("normal_low") - col("value"),
                 )
                 .when(
-                    (col("parameter") == "temperature")
-                    & (col("value") > TEMPERATURE_HIGH_LIMIT),
-                    col("value") - lit(TEMPERATURE_HIGH_LIMIT),
+                    col("normal_high").isNotNull() & (col("value") > col("normal_high")),
+                    col("value") - col("normal_high"),
                 )
                 .otherwise(lit(0.0)),
             )
             .withColumn(
                 "threshold_scale",
-                when(col("parameter") == "temperature", lit(TEMPERATURE_MAX_EXPECTED_DISTANCE))
-                .otherwise(lit(PH_MAX_EXPECTED_DISTANCE)),
+                coalesce(col("threshold_scale"), lit(DEFAULT_THRESHOLD_SCALE)),
             )
             .withColumn(
                 "rate_scale",
-                when(col("parameter") == "temperature", lit(TEMPERATURE_MAX_EXPECTED_RATE_CHANGE))
-                .otherwise(lit(PH_MAX_EXPECTED_RATE_CHANGE)),
+                coalesce(col("rate_change_scale"), lit(DEFAULT_RATE_CHANGE_SCALE)),
             )
             .withColumn(
                 "threshold_component",
-                least(lit(1.0), col("threshold_distance") / col("threshold_scale")),
+                when(
+                    col("threshold_scale") > 0,
+                    least(lit(1.0), col("threshold_distance") / col("threshold_scale")),
+                ).otherwise(lit(0.0)),
             )
             .withColumn(
                 "z_score",
@@ -322,14 +315,22 @@ def write_ai_scores_and_metrics(batch_df, _batch_id):
             )
             .withColumn(
                 "rate_component",
-                least(lit(1.0), col("rate_of_change") / col("rate_scale")),
+                when(
+                    col("rate_scale") > 0,
+                    least(lit(1.0), col("rate_of_change") / col("rate_scale")),
+                ).otherwise(lit(0.0)),
             )
             .withColumn(
                 "critical_rule_component",
-                when((col("parameter") == "pH") & ((col("value") <= 6.0) | (col("value") >= 9.0)), lit(1.0))
-                .when(
-                    (col("parameter") == "temperature")
-                    & ((col("value") <= -5.0) | (col("value") >= 40.0)),
+                when(
+                    (
+                        col("critical_low").isNotNull()
+                        & (col("value") <= col("critical_low"))
+                    )
+                    | (
+                        col("critical_high").isNotNull()
+                        & (col("value") >= col("critical_high"))
+                    ),
                     lit(1.0),
                 )
                 .otherwise(lit(0.0)),
@@ -487,6 +488,25 @@ sensor_metadata = (
     )
 )
 
+# Parameter rules used for generic alerting and anomaly scoring.
+parameter_rules = (
+    spark.read.format("org.apache.spark.sql.cassandra")
+    .options(keyspace=CASSANDRA_KEYSPACE, table="parameter_rules_by_parameter")
+    .load()
+    .select(
+        col("parameter").alias("rule_parameter"),
+        "display_name",
+        col("unit").alias("rule_unit"),
+        "normal_low",
+        "normal_high",
+        "critical_low",
+        "critical_high",
+        "threshold_scale",
+        "rate_change_scale",
+        "enabled",
+    )
+)
+
 # Read JSON readings from Kafka
 raw_readings = (
     spark.readStream.format("kafka")
@@ -523,34 +543,48 @@ valid_readings = (
     .where(col("event_time").isNotNull())
 )
 
-low_ph_reading = (col("sensor_type") == "pH") & (col("value") < PH_LOW_LIMIT)
-high_ph_reading = (col("sensor_type") == "pH") & (col("value") > PH_HIGH_LIMIT)
-low_temperature_reading = (col("sensor_type") == "temperature") & (
-    col("value") < TEMPERATURE_LOW_LIMIT
+rule_enabled = col("rule_enabled")
+below_normal = (
+    rule_enabled
+    & col("normal_low").isNotNull()
+    & (col("value") < col("normal_low"))
 )
-high_temperature_reading = (col("sensor_type") == "temperature") & (
-    col("value") > TEMPERATURE_HIGH_LIMIT
+above_normal = (
+    rule_enabled
+    & col("normal_high").isNotNull()
+    & (col("value") > col("normal_high"))
 )
-abnormal_reading = (
-    low_ph_reading
-    | high_ph_reading
-    | low_temperature_reading
-    | high_temperature_reading
+below_critical = (
+    rule_enabled
+    & col("critical_low").isNotNull()
+    & (col("value") <= col("critical_low"))
 )
+above_critical = (
+    rule_enabled
+    & col("critical_high").isNotNull()
+    & (col("value") >= col("critical_high"))
+)
+abnormal_reading = below_normal | above_normal
 
 # Enrich valid readings and prepare Cassandra columns
 processed_readings = (
     valid_readings.join(sensor_metadata, "sensor_id", "inner")
     .withColumn("parameter", coalesce(col("parameter"), col("sensor_type")))
+    .join(parameter_rules, col("parameter") == col("rule_parameter"), "left")
     .where(col("location_id").isNotNull())
     .where(col("parameter").isNotNull())
+    .withColumn("rule_enabled", coalesce(col("enabled"), lit(False)))
+    .withColumn("display_name", coalesce(col("display_name"), col("parameter")))
+    .withColumn("unit", coalesce(col("unit"), col("rule_unit")))
     .withColumn("bucket_date", to_date(col("event_time")))
     .withColumn("bucket_month", date_format(col("event_time"), "yyyy-MM"))
     .withColumn("bucket_year", date_format(col("event_time"), "yyyy").cast("int"))
     .withColumn("ingestion_time", current_timestamp())
     .withColumn(
         "quality_status",
-        when(abnormal_reading, lit("alert")).otherwise(lit("normal")),
+        when(~rule_enabled, lit("unconfigured"))
+        .when(abnormal_reading, lit("alert"))
+        .otherwise(lit("normal")),
     )
     .select(
         "sensor_id",
@@ -559,9 +593,17 @@ processed_readings = (
         "location_id",
         "location_name",
         "parameter",
+        "display_name",
         "value",
         "unit",
         "quality_status",
+        "rule_enabled",
+        "normal_low",
+        "normal_high",
+        "critical_low",
+        "critical_high",
+        "threshold_scale",
+        "rate_change_scale",
         "ingestion_time",
         "bucket_date",
         "bucket_month",
@@ -572,68 +614,39 @@ processed_readings = (
 # Detect abnormal readings and prepare enriched alert events.
 alerts = (
     processed_readings.withColumn(
-        "alert_type",
-        when(low_ph_reading, lit("LOW_PH"))
-        .when(high_ph_reading, lit("HIGH_PH"))
-        .when(low_temperature_reading, lit("LOW_TEMPERATURE"))
-        .when(high_temperature_reading, lit("HIGH_TEMPERATURE")),
+        "alert_direction",
+        when(below_normal, lit("LOW")).when(above_normal, lit("HIGH")),
     )
-    .where(col("alert_type").isNotNull())
+    .where(col("alert_direction").isNotNull())
     .withColumn(
-        "threshold_low",
-        when(col("sensor_type") == "pH", lit(PH_LOW_LIMIT)).when(
-            col("sensor_type") == "temperature",
-            lit(TEMPERATURE_LOW_LIMIT),
-        ),
+        "parameter_key",
+        upper(regexp_replace(col("parameter"), "[^A-Za-z0-9]+", "_")),
     )
-    .withColumn(
-        "threshold_high",
-        when(col("sensor_type") == "pH", lit(PH_HIGH_LIMIT)).when(
-            col("sensor_type") == "temperature",
-            lit(TEMPERATURE_HIGH_LIMIT),
-        ),
-    )
+    .withColumn("alert_type", concat_ws("_", col("alert_direction"), col("parameter_key")))
+    .withColumn("threshold_low", col("normal_low"))
+    .withColumn("threshold_high", col("normal_high"))
     .withColumn("alarm_state", lit("ACTIVE"))
     .withColumn(
         "severity",
-        when(
-            (col("sensor_type") == "pH")
-            & ((col("value") <= 6.0) | (col("value") >= 9.0)),
-            lit("CRITICAL"),
-        )
-        .when(
-            (col("sensor_type") == "temperature")
-            & ((col("value") <= -5.0) | (col("value") >= 40.0)),
-            lit("CRITICAL"),
-        )
-        .otherwise(lit("WARNING")),
+        when(below_critical | above_critical, lit("CRITICAL")).otherwise(lit("WARNING")),
     )
     .withColumn(
         "message",
-        when(col("alert_type") == "LOW_PH", lit("pH value is below allowed threshold"))
-        .when(col("alert_type") == "HIGH_PH", lit("pH value is above allowed threshold"))
-        .when(
-            col("alert_type") == "LOW_TEMPERATURE",
-            lit("Temperature value is below allowed threshold"),
-        )
-        .when(
-            col("alert_type") == "HIGH_TEMPERATURE",
-            lit("Temperature value is above allowed threshold"),
+        when(
+            col("alert_direction") == "LOW",
+            concat(col("display_name"), lit(" value is below allowed threshold")),
+        ).otherwise(
+            concat(col("display_name"), lit(" value is above allowed threshold")),
         ),
     )
     .withColumn(
         "explanation",
-        when(col("alert_type") == "LOW_PH", lit("pH is below the allowed lower threshold."))
-        .when(col("alert_type") == "HIGH_PH", lit("pH is above the allowed upper threshold."))
-        .when(
-            col("alert_type") == "LOW_TEMPERATURE",
-            lit("Temperature is below the allowed lower threshold."),
-        )
-        .when(
-            col("alert_type") == "HIGH_TEMPERATURE",
-            lit("Temperature is above the allowed upper threshold."),
-        )
-        .otherwise(lit("Reading violated a water-quality rule.")),
+        when(
+            col("alert_direction") == "LOW",
+            concat(col("display_name"), lit(" is below the configured lower threshold.")),
+        ).otherwise(
+            concat(col("display_name"), lit(" is above the configured upper threshold.")),
+        ),
     )
     .withColumn("processed_at", current_timestamp())
     .withColumn(

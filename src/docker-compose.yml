@@ -26,6 +26,21 @@ services:
       retries: 3
       start_period: 0s
 
+  dashboard-backend:
+    build:
+      context: ./dashboard-backend
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CASSANDRA_HOST=cassandra
+      - CASSANDRA_PORT=9042
+      - CASSANDRA_KEYSPACE=water_quality
+      - DEFAULT_LOCATION_ID=demo_location_01
+    ports:
+      - "8001:80"
+    depends_on:
+      cassandra:
+        condition: service_healthy
+
   kafka:
     image: apache/kafka:3.7.0
     hostname: kafka

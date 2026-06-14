@@ -2,6 +2,7 @@ import os
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
+    abs as spark_abs,
     avg,
     col,
     coalesce,
@@ -9,17 +10,25 @@ from pyspark.sql.functions import (
     count,
     current_timestamp,
     date_format,
+    date_trunc,
     from_json,
+    greatest,
+    lag,
     last,
+    least,
     lit,
     max as spark_max,
     min as spark_min,
     row_number,
+    round as spark_round,
     sha2,
+    stddev_samp,
     struct,
+    sum as spark_sum,
     to_date,
     to_json,
     to_timestamp,
+    unix_timestamp,
     when,
     window as time_window,
 )
@@ -40,6 +49,10 @@ PH_LOW_LIMIT = 6.5
 PH_HIGH_LIMIT = 8.5
 TEMPERATURE_LOW_LIMIT = 0.0
 TEMPERATURE_HIGH_LIMIT = 35.0
+PH_MAX_EXPECTED_DISTANCE = 1.0
+TEMPERATURE_MAX_EXPECTED_DISTANCE = 10.0
+PH_MAX_EXPECTED_RATE_CHANGE = 1.0
+TEMPERATURE_MAX_EXPECTED_RATE_CHANGE = 10.0
 
 
 # Kafka message schema
@@ -187,31 +200,277 @@ def write_daily_aggregates(batch_df, _batch_id):
         "readings_daily_by_location_parameter",
     )
 
-
-def write_alert_history(batch_df, _batch_id):
+def write_alerts_to_cassandra(batch_df, _batch_id):
     if not batch_has_rows(batch_df):
         return
 
-    write_to_cassandra(
-        batch_df.select(
+    batch_df.cache()
+    try:
+        write_to_cassandra(
+            batch_df.select(
+                "sensor_id",
+                "bucket_date",
+                "event_time",
+                "alert_id",
+                "location_id",
+                "location_name",
+                "parameter",
+                "value",
+                "unit",
+                "alert_type",
+                "severity",
+                "threshold_low",
+                "threshold_high",
+                "alarm_state",
+                "message",
+                "explanation",
+                "processed_at",
+            ),
+            "alerts_by_sensor_day",
+        )
+
+        write_to_cassandra(
+            batch_df.select(
+                "location_id",
+                "bucket_date",
+                "event_time",
+                "sensor_id",
+                "alert_id",
+                "location_name",
+                "parameter",
+                "value",
+                "unit",
+                "alert_type",
+                "severity",
+                "threshold_low",
+                "threshold_high",
+                "alarm_state",
+                "message",
+                "explanation",
+                "processed_at",
+            ),
+            "alerts_by_location_day",
+        )
+    finally:
+        batch_df.unpersist()
+
+
+def write_ai_scores_and_metrics(batch_df, _batch_id):
+    if not batch_has_rows(batch_df):
+        return
+
+    rolling_window = (
+        Window.partitionBy("sensor_id")
+        .orderBy("event_time")
+        .rowsBetween(-4, 0)
+    )
+    previous_reading_window = Window.partitionBy("sensor_id").orderBy("event_time")
+
+    batch_df.cache()
+    try:
+        scored = (
+            batch_df.withColumn("rolling_average", avg("value").over(rolling_window))
+            .withColumn(
+                "rolling_stddev",
+                coalesce(stddev_samp("value").over(rolling_window), lit(0.0)),
+            )
+            .withColumn("previous_value", lag("value").over(previous_reading_window))
+            .withColumn(
+                "rate_of_change",
+                coalesce(spark_abs(col("value") - col("previous_value")), lit(0.0)),
+            )
+            .withColumn(
+                "threshold_distance",
+                when((col("parameter") == "pH") & (col("value") < PH_LOW_LIMIT), lit(PH_LOW_LIMIT) - col("value"))
+                .when((col("parameter") == "pH") & (col("value") > PH_HIGH_LIMIT), col("value") - lit(PH_HIGH_LIMIT))
+                .when(
+                    (col("parameter") == "temperature")
+                    & (col("value") < TEMPERATURE_LOW_LIMIT),
+                    lit(TEMPERATURE_LOW_LIMIT) - col("value"),
+                )
+                .when(
+                    (col("parameter") == "temperature")
+                    & (col("value") > TEMPERATURE_HIGH_LIMIT),
+                    col("value") - lit(TEMPERATURE_HIGH_LIMIT),
+                )
+                .otherwise(lit(0.0)),
+            )
+            .withColumn(
+                "threshold_scale",
+                when(col("parameter") == "temperature", lit(TEMPERATURE_MAX_EXPECTED_DISTANCE))
+                .otherwise(lit(PH_MAX_EXPECTED_DISTANCE)),
+            )
+            .withColumn(
+                "rate_scale",
+                when(col("parameter") == "temperature", lit(TEMPERATURE_MAX_EXPECTED_RATE_CHANGE))
+                .otherwise(lit(PH_MAX_EXPECTED_RATE_CHANGE)),
+            )
+            .withColumn(
+                "threshold_component",
+                least(lit(1.0), col("threshold_distance") / col("threshold_scale")),
+            )
+            .withColumn(
+                "z_score",
+                when(
+                    col("rolling_stddev") > 0,
+                    spark_abs((col("value") - col("rolling_average")) / col("rolling_stddev")),
+                ).otherwise(lit(0.0)),
+            )
+            .withColumn(
+                "statistical_component",
+                least(lit(1.0), greatest(lit(0.0), (col("z_score") - lit(1.5)) / lit(1.5))),
+            )
+            .withColumn(
+                "rate_component",
+                least(lit(1.0), col("rate_of_change") / col("rate_scale")),
+            )
+            .withColumn(
+                "critical_rule_component",
+                when((col("parameter") == "pH") & ((col("value") <= 6.0) | (col("value") >= 9.0)), lit(1.0))
+                .when(
+                    (col("parameter") == "temperature")
+                    & ((col("value") <= -5.0) | (col("value") >= 40.0)),
+                    lit(1.0),
+                )
+                .otherwise(lit(0.0)),
+            )
+            .withColumn(
+                "raw_anomaly_score",
+                lit(0.5) * col("threshold_component")
+                + lit(0.3) * col("statistical_component")
+                + lit(0.2) * col("rate_component"),
+            )
+            .withColumn(
+                "anomaly_score",
+                spark_round(
+                    greatest(
+                        col("raw_anomaly_score"),
+                        when(col("critical_rule_component") > 0, lit(0.85)).otherwise(lit(0.0)),
+                        when(col("threshold_component") > 0, lit(0.60)).otherwise(lit(0.0)),
+                        when(col("statistical_component") > 0.5, lit(0.45)).otherwise(lit(0.0)),
+                        when(col("rate_component") > 0.5, lit(0.35)).otherwise(lit(0.0)),
+                    ),
+                    4,
+                ),
+            )
+            .withColumn(
+                "anomaly_level",
+                when(col("anomaly_score") >= 0.85, lit("CRITICAL"))
+                .when(col("anomaly_score") >= 0.60, lit("WARNING"))
+                .when(col("anomaly_score") >= 0.35, lit("WATCH"))
+                .otherwise(lit("NORMAL")),
+            )
+            .withColumn(
+                "explanation",
+                when(
+                    col("critical_rule_component") > 0,
+                    lit("Value crossed a critical water-quality threshold."),
+                )
+                .when(
+                    (col("threshold_component") > 0) & (col("statistical_component") > 0.5),
+                    lit("Value is outside the allowed range and significantly different from recent behavior."),
+                )
+                .when(
+                    col("threshold_component") > 0,
+                    lit("Value is outside the allowed water-quality range."),
+                )
+                .when(
+                    col("statistical_component") > 0.5,
+                    lit("Value is statistically unusual compared with recent readings."),
+                )
+                .when(
+                    col("rate_component") > 0.5,
+                    lit("Value changed faster than expected in the recent window."),
+                )
+                .otherwise(lit("Reading is consistent with the recent sensor pattern.")),
+            )
+            .withColumn("computed_at", current_timestamp())
+        )
+
+        ai_scores = scored.select(
             "sensor_id",
             "bucket_date",
             "event_time",
-            "alert_id",
             "location_id",
-            "location_name",
             "parameter",
             "value",
             "unit",
-            "alert_type",
-            "severity",
-            "threshold_low",
-            "threshold_high",
-            "message",
-            "processed_at",
-        ),
-        "alerts_by_sensor_day",
-    )
+            "rolling_average",
+            "rolling_stddev",
+            "z_score",
+            "rate_of_change",
+            "threshold_component",
+            "statistical_component",
+            "rate_component",
+            "anomaly_score",
+            "anomaly_level",
+            "explanation",
+            "computed_at",
+        )
+
+        write_to_cassandra(ai_scores, "ai_scores_by_sensor_day")
+
+        latest_ai_window = Window.partitionBy(
+            "location_id",
+            "parameter",
+            "sensor_id",
+        ).orderBy(col("event_time").desc())
+
+        latest_ai_scores = (
+            ai_scores.withColumn("row_number", row_number().over(latest_ai_window))
+            .where(col("row_number") == 1)
+            .select(
+                "location_id",
+                "parameter",
+                "sensor_id",
+                "event_time",
+                "value",
+                "unit",
+                "anomaly_score",
+                "anomaly_level",
+                "rolling_average",
+                "z_score",
+                "rate_of_change",
+                "explanation",
+                col("computed_at").alias("updated_at"),
+            )
+        )
+
+        write_to_cassandra(latest_ai_scores, "latest_ai_scores_by_location")
+
+        pipeline_metrics = (
+            scored.withColumn("minute_start", date_trunc("minute", col("computed_at")))
+            .withColumn("metric_date", to_date(col("minute_start")))
+            .withColumn(
+                "event_latency_ms",
+                ((unix_timestamp(col("computed_at")) - unix_timestamp(col("event_time"))) * 1000).cast("double"),
+            )
+            .groupBy("metric_date", "minute_start")
+            .agg(
+                count("*").alias("processed_reading_count"),
+                spark_sum(when(col("quality_status") == "alert", lit(1)).otherwise(lit(0))).cast("bigint").alias("alert_count"),
+                avg("anomaly_score").alias("avg_anomaly_score"),
+                spark_max("anomaly_score").alias("max_anomaly_score"),
+                avg("event_latency_ms").alias("avg_event_latency_ms"),
+                spark_max("event_latency_ms").alias("max_event_latency_ms"),
+            )
+            .withColumn("updated_at", current_timestamp())
+            .select(
+                "metric_date",
+                "minute_start",
+                "processed_reading_count",
+                "alert_count",
+                "avg_anomaly_score",
+                "max_anomaly_score",
+                "avg_event_latency_ms",
+                "max_event_latency_ms",
+                "updated_at",
+            )
+        )
+
+        write_to_cassandra(pipeline_metrics, "pipeline_metrics_by_minute")
+    finally:
+        batch_df.unpersist()
 
 
 # Sensor metadata used to enrich incoming readings
@@ -234,6 +493,7 @@ raw_readings = (
     .option("kafka.bootstrap.servers", BOOTSTRAP_SERVERS)
     .option("subscribe", READINGS_TOPIC)
     .option("startingOffsets", "latest")
+    .option("failOnDataLoss", "false")
     .load()
 )
 
@@ -333,7 +593,21 @@ alerts = (
             lit(TEMPERATURE_HIGH_LIMIT),
         ),
     )
-    .withColumn("severity", lit("warning"))
+    .withColumn("alarm_state", lit("ACTIVE"))
+    .withColumn(
+        "severity",
+        when(
+            (col("sensor_type") == "pH")
+            & ((col("value") <= 6.0) | (col("value") >= 9.0)),
+            lit("CRITICAL"),
+        )
+        .when(
+            (col("sensor_type") == "temperature")
+            & ((col("value") <= -5.0) | (col("value") >= 40.0)),
+            lit("CRITICAL"),
+        )
+        .otherwise(lit("WARNING")),
+    )
     .withColumn(
         "message",
         when(col("alert_type") == "LOW_PH", lit("pH value is below allowed threshold"))
@@ -346,6 +620,20 @@ alerts = (
             col("alert_type") == "HIGH_TEMPERATURE",
             lit("Temperature value is above allowed threshold"),
         ),
+    )
+    .withColumn(
+        "explanation",
+        when(col("alert_type") == "LOW_PH", lit("pH is below the allowed lower threshold."))
+        .when(col("alert_type") == "HIGH_PH", lit("pH is above the allowed upper threshold."))
+        .when(
+            col("alert_type") == "LOW_TEMPERATURE",
+            lit("Temperature is below the allowed lower threshold."),
+        )
+        .when(
+            col("alert_type") == "HIGH_TEMPERATURE",
+            lit("Temperature is above the allowed upper threshold."),
+        )
+        .otherwise(lit("Reading violated a water-quality rule.")),
     )
     .withColumn("processed_at", current_timestamp())
     .withColumn(
@@ -502,9 +790,17 @@ alerts_kafka_query = (
 
 alerts_cassandra_query = (
     alerts.writeStream.outputMode("append")
-    .foreachBatch(write_alert_history)
+    .foreachBatch(write_alerts_to_cassandra)
     .option("checkpointLocation", f"{CHECKPOINT_BASE}/alerts-cassandra")
     .queryName("alerts_to_cassandra")
+    .start()
+)
+
+ai_scores_query = (
+    processed_readings.writeStream.outputMode("append")
+    .foreachBatch(write_ai_scores_and_metrics)
+    .option("checkpointLocation", f"{CHECKPOINT_BASE}/ai-scores-and-metrics-cassandra")
+    .queryName("ai_scores_and_metrics_to_cassandra")
     .start()
 )
 

@@ -31,6 +31,8 @@ The notification service also starts automatically. By default it runs in dry-ru
 ## Services
 
 - Flask server: http://localhost:8000
+- Digital Twin dashboard: http://localhost:8001/digital-twin
+- Digital Twin API docs: http://localhost:8001/docs
 - Kafka UI: http://localhost:8080
 - Spark Master UI: http://localhost:8081
 - Spark Worker UI: http://localhost:8082
@@ -51,9 +53,17 @@ This keeps the demo flow simple:
 Kafka water-quality-readings -> Spark validation/enrichment/aggregation -> Cassandra
 Kafka water-quality-readings -> Spark alert detection -> Cassandra alerts_by_sensor_day
 Kafka water-quality-readings -> Spark alert detection -> Kafka water-quality-alerts -> notification-service
+Spark alert/AI/performance outputs -> Cassandra -> Digital Twin dashboard
 ```
 
 The Spark consumer keeps the current reading message schema unchanged. It reads JSON from Kafka, parses the fields, filters out broken messages, enriches valid readings with Cassandra sensor metadata, writes dashboard-ready readings and aggregates to Cassandra, prints useful live output to the Spark logs, writes alert history to Cassandra, and writes enriched alerts back to Kafka.
+
+Spark also writes read-only Digital Twin outputs to Cassandra:
+
+- alert history by sensor/day and location/day
+- explainable statistical anomaly scores
+- latest AI/anomaly state by location
+- per-minute pipeline performance metrics
 
 For troubleshooting only, the automatic submit command is:
 
@@ -190,7 +200,28 @@ docker compose logs -f spark-master
 docker compose logs -f spark-worker
 docker compose logs -f kafka
 docker compose logs -f notification-service
+docker compose logs -f dashboard-backend
 ```
+
+## Digital Twin dashboard
+
+Open http://localhost:8001/digital-twin after the stack has been running for a minute or two.
+
+The dashboard is read-only and is separate from the sensor control dashboard. It reads Cassandra through the `dashboard-backend` service and shows:
+
+- Overview: latest sensor state, active alerts, system status, recent metrics
+- Readings: processed Cassandra readings by sensor/day
+- Alarms: grouped alarm view derived from alert history
+- AI Insights: rolling average, rolling standard deviation, z-score, rate of change, anomaly score, and explanation
+- Performance: processed readings, alert counts, anomaly scores, and estimated event latency by minute
+
+AI scores are explainable statistical scores rather than a trained ML model. Spark combines:
+
+- threshold distance: how far the value is outside the allowed pH/temperature range
+- statistical difference: how unusual the value is compared with the recent rolling window
+- rate of change: how quickly the value moved compared with the previous reading
+
+The final anomaly level is `NORMAL`, `WATCH`, `WARNING`, or `CRITICAL`. A rule breach is always raised to at least `WARNING`, and a critical pH/temperature breach is raised to `CRITICAL`, so the dashboard label matches the explanation shown to the user.
 
 ## Later integration
 

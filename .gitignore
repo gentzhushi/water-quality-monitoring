@@ -57,6 +57,7 @@ docker-compose.override.yml
 .*
 !.gitignore
 !.dockerignore
+!.gitattributes
 
 *.tmp
 *.bak

@@ -104,7 +104,9 @@ CREATE TABLE IF NOT EXISTS alerts_by_sensor_day (
     severity text,
     threshold_low double,
     threshold_high double,
+    alarm_state text,
     message text,
+    explanation text,
     processed_at timestamp,
     PRIMARY KEY ((sensor_id, bucket_date), event_time, alert_id)
 ) WITH CLUSTERING ORDER BY (event_time DESC, alert_id ASC)
@@ -157,6 +159,108 @@ CREATE TABLE IF NOT EXISTS readings_daily_by_location_parameter (
       'class': 'TimeWindowCompactionStrategy',
       'compaction_window_unit': 'DAYS',
       'compaction_window_size': '30'
+  };
+
+-- Dashboard-friendly alert timeline for one location on one day.
+CREATE TABLE IF NOT EXISTS alerts_by_location_day (
+    location_id text,
+    bucket_date date,
+    event_time timestamp,
+    sensor_id text,
+    alert_id text,
+    location_name text,
+    parameter text,
+    value double,
+    unit text,
+    alert_type text,
+    severity text,
+    threshold_low double,
+    threshold_high double,
+    alarm_state text,
+    message text,
+    explanation text,
+    processed_at timestamp,
+    PRIMARY KEY ((location_id, bucket_date), event_time, sensor_id, alert_id)
+) WITH CLUSTERING ORDER BY (event_time DESC, sensor_id ASC, alert_id ASC)
+  AND default_time_to_live = 157680000
+  AND compaction = {
+      'class': 'TimeWindowCompactionStrategy',
+      'compaction_window_unit': 'DAYS',
+      'compaction_window_size': '7'
+  };
+
+ALTER TABLE alerts_by_sensor_day ADD IF NOT EXISTS alarm_state text;
+ALTER TABLE alerts_by_sensor_day ADD IF NOT EXISTS explanation text;
+ALTER TABLE alerts_by_location_day ADD IF NOT EXISTS alert_id text;
+ALTER TABLE alerts_by_location_day ADD IF NOT EXISTS location_name text;
+ALTER TABLE alerts_by_location_day ADD IF NOT EXISTS threshold_low double;
+ALTER TABLE alerts_by_location_day ADD IF NOT EXISTS threshold_high double;
+
+-- Explainable statistical anomaly scores for one sensor on one day.
+CREATE TABLE IF NOT EXISTS ai_scores_by_sensor_day (
+    sensor_id text,
+    bucket_date date,
+    event_time timestamp,
+    location_id text,
+    parameter text,
+    value double,
+    unit text,
+    rolling_average double,
+    rolling_stddev double,
+    z_score double,
+    rate_of_change double,
+    threshold_component double,
+    statistical_component double,
+    rate_component double,
+    anomaly_score double,
+    anomaly_level text,
+    explanation text,
+    computed_at timestamp,
+    PRIMARY KEY ((sensor_id, bucket_date), event_time)
+) WITH CLUSTERING ORDER BY (event_time DESC)
+  AND default_time_to_live = 157680000
+  AND compaction = {
+      'class': 'TimeWindowCompactionStrategy',
+      'compaction_window_unit': 'DAYS',
+      'compaction_window_size': '7'
+  };
+
+-- Latest anomaly state for the digital twin overview.
+CREATE TABLE IF NOT EXISTS latest_ai_scores_by_location (
+    location_id text,
+    parameter text,
+    sensor_id text,
+    event_time timestamp,
+    value double,
+    unit text,
+    anomaly_score double,
+    anomaly_level text,
+    rolling_average double,
+    z_score double,
+    rate_of_change double,
+    explanation text,
+    updated_at timestamp,
+    PRIMARY KEY ((location_id), parameter, sensor_id)
+) WITH CLUSTERING ORDER BY (parameter ASC, sensor_id ASC);
+
+-- Lightweight pipeline metrics used by the Performance & Analysis dashboard.
+CREATE TABLE IF NOT EXISTS pipeline_metrics_by_minute (
+    metric_date date,
+    minute_start timestamp,
+    processed_reading_count bigint,
+    alert_count bigint,
+    avg_anomaly_score double,
+    max_anomaly_score double,
+    avg_event_latency_ms double,
+    max_event_latency_ms double,
+    updated_at timestamp,
+    PRIMARY KEY ((metric_date), minute_start)
+) WITH CLUSTERING ORDER BY (minute_start DESC)
+  AND default_time_to_live = 157680000
+  AND compaction = {
+      'class': 'TimeWindowCompactionStrategy',
+      'compaction_window_unit': 'DAYS',
+      'compaction_window_size': '7'
   };
 
 -- Demo metadata for the current mock producer messages.

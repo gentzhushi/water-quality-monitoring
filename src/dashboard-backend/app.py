@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST", "cassandra")
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "water_quality")
-DEFAULT_CLUSTER_ID = os.getenv("DEFAULT_CLUSTER_ID", "C3")
+DEFAULT_CLUSTER_ID = os.getenv("DEFAULT_CLUSTER_ID", "")
 DEFAULT_LOCATION_ID = os.getenv("DEFAULT_LOCATION_ID", "")
 
 app = FastAPI(title="Water Quality Digital Twin Dashboard")
@@ -535,8 +535,17 @@ def api_alerts(
 
 
 @app.get("/api/alarms")
-def api_alarms(cluster_id: str | None = None, bucket_date: str | None = None):
-    alerts = api_alerts(cluster_id=cluster_id, bucket_date=bucket_date, limit=500)["items"]
+def api_alarms(
+    cluster_id: str | None = None,
+    bucket_date: str | None = None,
+    sensor_id: str | None = None,
+):
+    alerts = api_alerts(
+        cluster_id=cluster_id,
+        bucket_date=bucket_date,
+        sensor_id=sensor_id,
+        limit=500,
+    )["items"]
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     now = datetime.now(timezone.utc)
 
@@ -606,20 +615,46 @@ def api_ml_predictions(
 ):
     day = parse_day(prediction_date)
     limit = clamp_limit(limit)
-    rows = query_rows(
-        f"""
-        SELECT location_id, prediction_date, prediction_time, forecast_horizon_minutes,
-               risk_score, risk_level, predicted_event_type, class_probabilities,
-               explanation, model_name, model_version, computed_at
-        FROM ml_predictions_by_location_minute
-        WHERE location_id = %s AND prediction_date = %s
-        LIMIT {limit}
-        """,
-        (location_id, day),
-    )
-    rows.reverse()
+    location_id = location_id.strip() if location_id else ""
+
+    if location_id:
+        rows = query_rows(
+            f"""
+            SELECT location_id, prediction_date, prediction_time, forecast_horizon_minutes,
+                   risk_score, risk_level, predicted_event_type, class_probabilities,
+                   explanation, model_name, model_version, computed_at
+            FROM ml_predictions_by_location_minute
+            WHERE location_id = %s AND prediction_date = %s
+            LIMIT {limit}
+            """,
+            (location_id, day),
+        )
+    else:
+        locations = [
+            row["location_id"]
+            for row in query_rows("SELECT location_id FROM latest_ml_predictions_by_location")
+        ]
+        rows = []
+        for prediction_location in locations:
+            rows.extend(
+                query_rows(
+                    f"""
+                    SELECT location_id, prediction_date, prediction_time, forecast_horizon_minutes,
+                           risk_score, risk_level, predicted_event_type, class_probabilities,
+                           explanation, model_name, model_version, computed_at
+                    FROM ml_predictions_by_location_minute
+                    WHERE location_id = %s AND prediction_date = %s
+                    LIMIT {limit}
+                    """,
+                    (prediction_location, day),
+                )
+            )
+        rows.sort(key=lambda row: row["prediction_time"], reverse=True)
+        rows = rows[:limit]
+
+    rows.sort(key=lambda row: row["prediction_time"])
     return {
-        "location_id": location_id,
+        "location_id": location_id or None,
         "prediction_date": day.isoformat(),
         "latest": get_latest_ml_prediction(location_id),
         "items": [normalize_ml_prediction(row) for row in rows],

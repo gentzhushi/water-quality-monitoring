@@ -1,54 +1,54 @@
 # Early-Warning ML Training Report
 
-- Trained at: `2026-06-14T17:07:19.184926+00:00`
+- Trained at: `2026-06-22T20:44:49.212352+00:00`
 - Model: `RandomForestClassifier`
 - Version: `synthetic-rf-v1`
-- Training rows: `56160`
-- Test rows: `14040`
-- Accuracy: `0.9424`
-- Macro F1: `0.9407`
+- Training rows: `28800`
+- Test rows: `7200`
+- Accuracy: `0.8519`
+- Macro F1: `0.8561`
 
 ## Per-Class Metrics
 
 | Class | Precision | Recall | F1 | Support |
 | --- | ---: | ---: | ---: | ---: |
-| chemical_shift | 0.9808 | 0.9537 | 0.9671 | 1231 |
-| gradual_degradation | 0.9933 | 0.9401 | 0.9660 | 1253 |
-| normal | 0.9074 | 0.9929 | 0.9482 | 7332 |
-| oxygen_depletion | 0.9842 | 0.9973 | 0.9907 | 1125 |
-| sensor_fault | 1.0000 | 0.7757 | 0.8737 | 1605 |
-| storm_runoff | 0.9864 | 0.8246 | 0.8983 | 1494 |
+| chemical_shift | 1.0000 | 0.7761 | 0.8740 | 880 |
+| gradual_degradation | 1.0000 | 0.7834 | 0.8786 | 882 |
+| normal | 0.7284 | 0.9986 | 0.8424 | 2852 |
+| oxygen_depletion | 0.9941 | 0.7752 | 0.8711 | 863 |
+| sensor_fault | 1.0000 | 0.6432 | 0.7829 | 852 |
+| storm_runoff | 1.0000 | 0.7979 | 0.8876 | 871 |
 
 ## Top Feature Importances
 
 | Feature | Importance |
 | --- | ---: |
-| turbidity_latest | 0.079282 |
-| temperature_mean_5m | 0.073162 |
-| conductivity_latest | 0.072472 |
-| conductivity_mean_5m | 0.065708 |
-| dissolved_oxygen_latest | 0.062161 |
-| ph_mean_5m | 0.059706 |
-| dissolved_oxygen_mean_5m | 0.058894 |
-| turbidity_mean_5m | 0.055967 |
-| ph_latest | 0.055824 |
-| temperature_latest | 0.051569 |
-| avg_threshold_distance | 0.040415 |
-| max_threshold_distance | 0.036365 |
-| turbidity_slope_5m | 0.033292 |
-| orp_mean_5m | 0.031972 |
-| turbidity_std_5m | 0.031424 |
-| orp_latest | 0.026072 |
-| critical_count_5m | 0.025954 |
-| turbidity_threshold_distance | 0.025281 |
-| ph_std_5m | 0.020364 |
-| warning_count_5m | 0.016815 |
+| avg_threshold_distance | 0.090891 |
+| turbidity_latest | 0.082794 |
+| max_threshold_distance | 0.072345 |
+| warning_count_5m | 0.067353 |
+| turbidity_mean_5m | 0.063717 |
+| conductivity_latest | 0.062518 |
+| conductivity_mean_5m | 0.061055 |
+| dissolved_oxygen_latest | 0.057867 |
+| turbidity_threshold_distance | 0.051182 |
+| dissolved_oxygen_mean_5m | 0.043472 |
+| orp_mean_5m | 0.038638 |
+| critical_count_5m | 0.037941 |
+| temperature_mean_5m | 0.037654 |
+| temperature_latest | 0.035812 |
+| conductivity_threshold_distance | 0.028294 |
+| orp_latest | 0.025010 |
+| orp_threshold_distance | 0.017658 |
+| turbidity_slope_5m | 0.017155 |
+| ph_latest | 0.013499 |
+| ph_threshold_distance | 0.013290 |
 
 ## Example Predictions
 
-- `normal` sample from `normal_000` minute `5`: risk `0.3178`, level `LOW`, event `none`
-- `storm_runoff` sample from `storm_runoff_000` minute `24`: risk `0.3201`, level `LOW`, event `none`
-- `oxygen_depletion` sample from `oxygen_depletion_000` minute `45`: risk `0.9453`, level `CRITICAL`, event `oxygen_depletion`
-- `chemical_shift` sample from `chemical_shift_000` minute `42`: risk `0.9524`, level `CRITICAL`, event `chemical_shift`
-- `sensor_fault` sample from `sensor_fault_000` minute `25`: risk `0.3192`, level `LOW`, event `none`
-- `gradual_degradation` sample from `gradual_degradation_000` minute `36`: risk `0.3204`, level `LOW`, event `none`
+- `normal` sample from `normal_000` minute `5`: risk `0.274`, level `LOW`, event `none`
+- `storm_runoff` sample from `storm_runoff_000` minute `30`: risk `0.2826`, level `LOW`, event `none`
+- `oxygen_depletion` sample from `oxygen_depletion_000` minute `20`: risk `0.2634`, level `LOW`, event `none`
+- `chemical_shift` sample from `chemical_shift_000` minute `25`: risk `0.271`, level `LOW`, event `none`
+- `sensor_fault` sample from `sensor_fault_000` minute `26`: risk `0.2728`, level `LOW`, event `none`
+- `gradual_degradation` sample from `gradual_degradation_000` minute `26`: risk `0.2775`, level `LOW`, event `none`

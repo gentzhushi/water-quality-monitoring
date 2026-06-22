@@ -8,7 +8,7 @@ First off, make sure you have `docker` and `docker compose`.
 1. Clone the repository and `cd` into it:
 ```sh
 git clone git@github.com:gentzhushi/water-quality-monitoring && \
-cd water-quality-monitoring/src
+cd water-quality-monitoring
 ```
 
 2. Start the services from the `src` directory:
@@ -17,7 +17,7 @@ cd src
 docker compose up -d --build
 ```
 
-This starts the existing Flask/sensor services, Kafka, Cassandra, and a small Spark standalone cluster:
+This starts the sensor services, Kafka, Cassandra, and a small Spark standalone cluster:
 
 ```text
 sensor-cluster-* -> sensor-server -> Kafka water-quality-readings -> Spark master/worker cluster -> Cassandra
@@ -30,7 +30,7 @@ The notification service also starts automatically. By default it runs in dry-ru
 
 ## Services
 
-- Flask server: http://localhost:8000
+- Sensor control dashboard and API: http://localhost/control-panel
 - Digital Twin dashboard: http://localhost:8001/digital-twin
 - Digital Twin API docs: http://localhost:8001/docs
 - Kafka UI: http://localhost:8080
@@ -60,9 +60,10 @@ The Spark consumer keeps the current reading message schema unchanged. It reads 
 
 Spark also writes read-only Digital Twin outputs to Cassandra:
 
-- alert history by sensor/day and location/day
+- alert history by sensor/day and cluster/day
 - explainable statistical anomaly scores
-- latest AI/anomaly state by location
+- latest AI/anomaly state by cluster
+- early-warning ML prediction history and latest prediction state
 - per-minute pipeline performance metrics
 
 For troubleshooting only, the automatic submit command is:
@@ -107,7 +108,7 @@ Alert thresholds are demo rules stored in Cassandra table `parameter_rules_by_pa
 - `dissolved_oxygen`
 - `ORP`
 
-Alert messages include the sensor id, location id, location name, parameter, value, unit, alert type, severity, expected threshold range, event time, and processing time. The notification service uses this Kafka message directly and does not query Cassandra when sending an email.
+Alert messages include the sensor id, cluster id, local sensor id, parameter, value, unit, alert type, severity, expected threshold range, event time, and processing time. The notification service uses this Kafka message directly and does not query Cassandra when sending an email.
 
 ## Email notifications with Gmail SMTP
 
@@ -185,6 +186,7 @@ From `src`:
 ```sh
 docker compose logs -f sensor-cluster-1
 docker compose logs -f sensor-cluster-2
+docker compose logs -f sensor-cluster-3
 docker compose logs -f sensor-server
 docker compose logs -f cassandra
 docker compose logs -f spark-master
@@ -204,14 +206,30 @@ The dashboard is read-only and is separate from the sensor control dashboard. It
 - Readings: processed Cassandra readings by sensor/day
 - Alarms: grouped alarm view derived from alert history
 - AI Insights: rolling average, rolling standard deviation, z-score, rate of change, anomaly score, and explanation
+- Predictions: latest and historical early-warning ML predictions
 - Performance: processed readings, alert counts, anomaly scores, and estimated event latency by minute
 
-AI scores are explainable statistical scores rather than a trained ML model. Spark combines:
+AI Insights are explainable statistical scores for what is happening now. Spark combines:
 
 - threshold distance: how far the value is outside the configured parameter range
 - statistical difference: how unusual the value is compared with the recent rolling window
 - rate of change: how quickly the value moved compared with the previous reading
 
 The final anomaly level is `NORMAL`, `WATCH`, `WARNING`, or `CRITICAL`. A configured rule breach is always raised to at least `WARNING`, and a configured critical breach is raised to `CRITICAL`, so the dashboard label matches the explanation shown to the user.
+
+Sensor `min_value` and `max_value` are the full measurement range of the simulated sensor hardware. Warning and critical states come from Spark's environmental freshwater demo rules:
+
+| Parameter | Warning outside | Critical at/beyond |
+| --- | ---: | ---: |
+| pH | `6.5-9.0` | `<=6.0` or `>=9.5` |
+| Temperature | `0-30 C` | `<=-1 C` or `>=35 C` |
+| Turbidity | `0-10 NTU` | `>=50 NTU` |
+| Conductivity | `150-500 uS/cm` | `<=50` or `>=1500 uS/cm` |
+| Dissolved oxygen | `5.5-14 mg/L` | `<=3.0` or `>=18 mg/L` |
+| ORP | `300-500 mV` | `<=100` or `>=700 mV` |
+
+These are reference-backed demo rules, not certified legal compliance limits. The simulator intentionally emits mostly normal readings with occasional warning and critical excursions so the dashboard, notifications, AI Insights, and Predictions paths can all be demonstrated.
+
+Predictions are separate from AI Insights. Spark loads the offline-trained early-warning model, builds short live feature windows, writes prediction rows to Cassandra, and the dashboard shows them globally.
 
 The Kafka/Spark path now uses the simulated sensor clusters. Cluster configuration comes from Cassandra through the sensor-server API, and measurements are published to Kafka before Spark processes them.

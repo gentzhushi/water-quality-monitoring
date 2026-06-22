@@ -201,7 +201,6 @@ def main():
         n_estimators=200,
         max_depth=10,
         min_samples_leaf=10,
-        class_weight="balanced_subsample",
         random_state=RANDOM_STATE,
         n_jobs=-1,
     )

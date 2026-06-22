@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS sensor_configs_by_cluster (
 -- Demo sensor-server configuration used by the simulated sensor clusters.
 INSERT INTO sensor_clusters (cluster_id) VALUES ('C1') IF NOT EXISTS;
 INSERT INTO sensor_clusters (cluster_id) VALUES ('C2') IF NOT EXISTS;
+INSERT INTO sensor_clusters (cluster_id) VALUES ('C3') IF NOT EXISTS;
 
 INSERT INTO sensor_configs_by_cluster (
     cluster_id,
@@ -37,10 +38,10 @@ INSERT INTO sensor_configs_by_cluster (
 ) VALUES (
     'C1',
     'S001',
-    1,
-    100,
+    -5,
+    50,
     'temperature',
-    '°C',
+    'C',
     4,
     10,
     toTimestamp(now())
@@ -59,11 +60,33 @@ INSERT INTO sensor_configs_by_cluster (
 ) VALUES (
     'C1',
     'S002',
-    1,
+    0,
     14,
     'pH',
-    'pH units',
+    'pH',
     2,
+    10,
+    toTimestamp(now())
+) IF NOT EXISTS;
+
+INSERT INTO sensor_configs_by_cluster (
+    cluster_id,
+    sensor_id,
+    min_value,
+    max_value,
+    sensor_type,
+    unit,
+    measure_interval_s,
+    config_interval_s,
+    updated_at
+) VALUES (
+    'C2',
+    'S001',
+    0,
+    4000,
+    'turbidity',
+    'NTU',
+    1,
     10,
     toTimestamp(now())
 ) IF NOT EXISTS;
@@ -84,7 +107,7 @@ INSERT INTO sensor_configs_by_cluster (
     0,
     14,
     'pH',
-    'pH units',
+    'pH',
     2,
     10,
     toTimestamp(now())
@@ -103,7 +126,7 @@ INSERT INTO sensor_configs_by_cluster (
 ) VALUES (
     'C3',
     'S002',
-    -10,
+    -5,
     50,
     'temperature',
     'C',
@@ -126,7 +149,7 @@ INSERT INTO sensor_configs_by_cluster (
     'C3',
     'S003',
     0,
-    1000,
+    4000,
     'turbidity',
     'NTU',
     1,
@@ -148,7 +171,7 @@ INSERT INTO sensor_configs_by_cluster (
     'C3',
     'S004',
     0,
-    2000,
+    200000,
     'conductivity',
     'uS/cm',
     3,
@@ -170,7 +193,7 @@ INSERT INTO sensor_configs_by_cluster (
     'C3',
     'S005',
     0,
-    15,
+    50,
     'dissolved_oxygen',
     'mg/L',
     2,
@@ -191,8 +214,8 @@ INSERT INTO sensor_configs_by_cluster (
 ) VALUES (
     'C3',
     'S006',
-    -1000,
-    1000,
+    -1500,
+    1500,
     'ORP',
     'mV',
     4,

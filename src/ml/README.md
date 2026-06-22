@@ -2,7 +2,7 @@
 
 This folder contains an isolated supervised ML model for water-quality risk prediction.
 The model is trained offline here, then loaded by the Spark streaming job for live inference.
-The dashboard does not read the prediction tables yet.
+The dashboard reads the live prediction tables through the Digital Twin backend.
 
 The model answers:
 
@@ -34,16 +34,18 @@ It is a good fit for this demo because it:
 - `gradual_degradation`
 
 Each feature row summarizes a recent five-minute window and labels what happens in the next ten minutes.
+The training data uses the same environmental freshwater warning and critical rules that Spark seeds in Cassandra.
+Those rules are reference-backed demo limits, not certified legal compliance limits.
 
 ## How To Run
 
-From this folder:
+The saved model should be generated with the same Python package versions that Spark uses at runtime.
+From the repository root, use the Spark image:
 
 ```sh
-python -m pip install -r requirements.txt
-python generate_training_data.py
-python train_model.py
-python predict_sample.py
+docker run --rm -v "$PWD/src/ml:/opt/ml" -w /opt/ml water-quality-spark-ml:latest python3 generate_training_data.py
+docker run --rm -v "$PWD/src/ml:/opt/ml" -w /opt/ml water-quality-spark-ml:latest python3 train_model.py
+docker run --rm -v "$PWD/src/ml:/opt/ml" -w /opt/ml water-quality-spark-ml:latest python3 predict_sample.py
 ```
 
 Generated files:

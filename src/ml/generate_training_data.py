@@ -15,43 +15,43 @@ MINUTES_PER_RUN = 80
 PARAMETER_RULES = {
     "pH": {
         "normal_low": 6.5,
-        "normal_high": 8.5,
+        "normal_high": 9.0,
         "critical_low": 6.0,
-        "critical_high": 9.0,
+        "critical_high": 9.5,
         "threshold_scale": 1.0,
     },
     "temperature": {
         "normal_low": 0.0,
-        "normal_high": 35.0,
-        "critical_low": -5.0,
-        "critical_high": 40.0,
+        "normal_high": 30.0,
+        "critical_low": -1.0,
+        "critical_high": 35.0,
         "threshold_scale": 10.0,
     },
     "turbidity": {
         "normal_low": 0.0,
-        "normal_high": 5.0,
+        "normal_high": 10.0,
         "critical_low": -1.0,
-        "critical_high": 20.0,
+        "critical_high": 50.0,
         "threshold_scale": 15.0,
     },
     "conductivity": {
-        "normal_low": 50.0,
-        "normal_high": 1500.0,
-        "critical_low": 20.0,
-        "critical_high": 2500.0,
+        "normal_low": 150.0,
+        "normal_high": 500.0,
+        "critical_low": 50.0,
+        "critical_high": 1500.0,
         "threshold_scale": 500.0,
     },
     "dissolved_oxygen": {
-        "normal_low": 5.0,
+        "normal_low": 5.5,
         "normal_high": 14.0,
         "critical_low": 3.0,
         "critical_high": 18.0,
         "threshold_scale": 3.0,
     },
     "ORP": {
-        "normal_low": 150.0,
+        "normal_low": 300.0,
         "normal_high": 500.0,
-        "critical_low": 50.0,
+        "critical_low": 100.0,
         "critical_high": 700.0,
         "threshold_scale": 200.0,
     },
@@ -61,18 +61,18 @@ BASELINE_VALUES = {
     "pH": 7.2,
     "temperature": 21.0,
     "turbidity": 2.0,
-    "conductivity": 700.0,
+    "conductivity": 320.0,
     "dissolved_oxygen": 8.2,
-    "ORP": 320.0,
+    "ORP": 380.0,
 }
 
 NOISE = {
     "pH": 0.04,
     "temperature": 0.35,
     "turbidity": 0.20,
-    "conductivity": 35.0,
+    "conductivity": 25.0,
     "dissolved_oxygen": 0.18,
-    "ORP": 12.0,
+    "ORP": 10.0,
 }
 
 SCENARIOS = [
@@ -136,7 +136,7 @@ def normal_values(rng):
 
 
 def add_storm_runoff(values, progress):
-    values["turbidity"] += 22.0 * progress
+    values["turbidity"] += 90.0 * progress
     values["conductivity"] += 1900.0 * progress
     values["dissolved_oxygen"] -= 3.2 * progress
     values["ORP"] -= 180.0 * progress
@@ -163,7 +163,7 @@ def add_sensor_fault(values, progress, parameter):
     elif parameter == "temperature":
         values["temperature"] += 25.0
     elif parameter == "turbidity":
-        values["turbidity"] += 35.0
+        values["turbidity"] += 80.0
     elif parameter == "conductivity":
         values["conductivity"] += 2600.0
     elif parameter == "dissolved_oxygen":

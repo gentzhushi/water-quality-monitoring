@@ -24,6 +24,8 @@
 
         * { box-sizing: border-box; }
 
+        [hidden] { display: none !important; }
+
         body {
             margin: 0;
             min-height: 100vh;
@@ -458,6 +460,14 @@ const titles = {
     performance: 'Performance'
 };
 
+function viewUsesSensorFilter() {
+    return ['readings', 'alarms', 'ai'].includes(state.view);
+}
+
+function updateToolbarForView() {
+    document.getElementById('sensor-select').hidden = !viewUsesSensorFilter();
+}
+
 function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -736,10 +746,11 @@ async function loadReadings() {
 }
 
 async function loadAlarms() {
+    const sensorId = document.getElementById('sensor-select').value;
     const day = document.getElementById('date-input').value || todayIso();
     const [alarms, alerts] = await Promise.all([
-        getJson(withQuery('/api/alarms', { cluster_id: state.clusterId, bucket_date: day })),
-        getJson(withQuery('/api/alerts', { cluster_id: state.clusterId, bucket_date: day, limit: 200 }))
+        getJson(withQuery('/api/alarms', { cluster_id: state.clusterId, bucket_date: day, sensor_id: sensorId })),
+        getJson(withQuery('/api/alerts', { cluster_id: state.clusterId, bucket_date: day, sensor_id: sensorId, limit: 200 }))
     ]);
 
     renderTable('alarms-table', [
@@ -932,6 +943,7 @@ async function loadPerformance() {
 async function refreshCurrentView() {
     try {
         if (!state.sensors.length) await loadSensors();
+        updateToolbarForView();
         if (state.view === 'overview') await loadOverview();
         if (state.view === 'readings') await loadReadings();
         if (state.view === 'alarms') await loadAlarms();
@@ -952,6 +964,7 @@ document.querySelectorAll('.nav button').forEach(button => {
         state.view = button.dataset.view;
         document.getElementById(state.view).classList.add('active');
         document.getElementById('view-title').textContent = titles[state.view];
+        updateToolbarForView();
         await refreshCurrentView();
     });
 });
@@ -968,6 +981,7 @@ document.getElementById('cluster-select').addEventListener('change', async event
 document.getElementById('sensor-select').addEventListener('change', refreshCurrentView);
 document.getElementById('date-input').addEventListener('change', refreshCurrentView);
 document.getElementById('date-input').value = todayIso();
+updateToolbarForView();
 
 loadClusters().then(loadSensors).then(refreshCurrentView);
 setInterval(refreshCurrentView, 30000);

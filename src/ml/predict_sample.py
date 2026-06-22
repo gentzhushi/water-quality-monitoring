@@ -14,9 +14,9 @@ BASELINE_VALUES = {
     "pH": 7.2,
     "temperature": 21.0,
     "turbidity": 2.0,
-    "conductivity": 700.0,
+    "conductivity": 320.0,
     "dissolved_oxygen": 8.2,
-    "ORP": 320.0,
+    "ORP": 380.0,
 }
 
 
@@ -106,10 +106,10 @@ def main() -> None:
 
     samples = {
         "normal_stable_water": make_sample({}, {}, bundle),
-        "storm_runoff_warning": make_sample(
+        "storm_runoff_risk": make_sample(
             {
                 "turbidity": 18.0,
-                "conductivity": 2300.0,
+                "conductivity": 900.0,
                 "dissolved_oxygen": 5.4,
                 "ORP": 230.0,
             },
@@ -121,11 +121,11 @@ def main() -> None:
             },
             bundle,
         ),
-        "oxygen_depletion_warning": make_sample(
+        "oxygen_depletion_risk": make_sample(
             {
                 "temperature": 31.0,
-                "dissolved_oxygen": 2.8,
-                "ORP": 95.0,
+                "dissolved_oxygen": 3.5,
+                "ORP": 150.0,
             },
             {
                 "temperature": 0.8,

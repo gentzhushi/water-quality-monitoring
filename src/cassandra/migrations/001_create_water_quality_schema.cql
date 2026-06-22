@@ -295,45 +295,45 @@ CREATE TABLE IF NOT EXISTS latest_ml_predictions_by_location (
     computed_at timestamp
 );
 
--- Demo rules for the supported water-quality parameters.
+-- Reference-backed demo rules for environmental freshwater monitoring.
 INSERT INTO parameter_rules_by_parameter (
     parameter, display_name, unit, normal_low, normal_high, critical_low,
     critical_high, threshold_scale, rate_change_scale, enabled
 ) VALUES (
-    'pH', 'pH', 'pH', 6.5, 8.5, 6.0, 9.0, 1.0, 1.0, true
+    'pH', 'pH', 'pH', 6.5, 9.0, 6.0, 9.5, 1.0, 1.0, true
 ) IF NOT EXISTS;
 
 INSERT INTO parameter_rules_by_parameter (
     parameter, display_name, unit, normal_low, normal_high, critical_low,
     critical_high, threshold_scale, rate_change_scale, enabled
 ) VALUES (
-    'temperature', 'Temperature', 'C', 0.0, 35.0, -5.0, 40.0, 10.0, 10.0, true
+    'temperature', 'Temperature', 'C', 0.0, 30.0, -1.0, 35.0, 10.0, 10.0, true
 ) IF NOT EXISTS;
 
 INSERT INTO parameter_rules_by_parameter (
     parameter, display_name, unit, normal_low, normal_high, critical_low,
     critical_high, threshold_scale, rate_change_scale, enabled
 ) VALUES (
-    'turbidity', 'Turbidity', 'NTU', 0.0, 5.0, -1.0, 20.0, 15.0, 5.0, true
+    'turbidity', 'Turbidity', 'NTU', 0.0, 10.0, -1.0, 50.0, 15.0, 5.0, true
 ) IF NOT EXISTS;
 
 INSERT INTO parameter_rules_by_parameter (
     parameter, display_name, unit, normal_low, normal_high, critical_low,
     critical_high, threshold_scale, rate_change_scale, enabled
 ) VALUES (
-    'conductivity', 'Conductivity', 'uS/cm', 50.0, 1500.0, 20.0, 2500.0, 500.0, 300.0, true
+    'conductivity', 'Conductivity', 'uS/cm', 150.0, 500.0, 50.0, 1500.0, 500.0, 300.0, true
 ) IF NOT EXISTS;
 
 INSERT INTO parameter_rules_by_parameter (
     parameter, display_name, unit, normal_low, normal_high, critical_low,
     critical_high, threshold_scale, rate_change_scale, enabled
 ) VALUES (
-    'dissolved_oxygen', 'Dissolved Oxygen', 'mg/L', 5.0, 14.0, 3.0, 18.0, 3.0, 2.0, true
+    'dissolved_oxygen', 'Dissolved Oxygen', 'mg/L', 5.5, 14.0, 3.0, 18.0, 3.0, 2.0, true
 ) IF NOT EXISTS;
 
 INSERT INTO parameter_rules_by_parameter (
     parameter, display_name, unit, normal_low, normal_high, critical_low,
     critical_high, threshold_scale, rate_change_scale, enabled
 ) VALUES (
-    'ORP', 'ORP', 'mV', 150.0, 500.0, 50.0, 700.0, 200.0, 100.0, true
+    'ORP', 'ORP', 'mV', 300.0, 500.0, 100.0, 700.0, 200.0, 100.0, true
 ) IF NOT EXISTS;

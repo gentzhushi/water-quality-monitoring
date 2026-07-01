@@ -2,6 +2,7 @@ from   argparse import ArgumentParser, Namespace
 import asyncio
 import httpx
 import random
+import time
 from   typing   import Any
 
 
@@ -58,6 +59,7 @@ class Sensor:
         self.measure_interval_s = measure_interval_s
         self.config_interval_s  = config_interval_s
         self.reading_count      = 0
+        self.last_measurement_at = 0.0
 
     @classmethod
     def from_row(cls, row: dict[str, Any]):
@@ -95,6 +97,15 @@ class Sensor:
     def _clamp(self, value: float) -> float:
         return max(self.min, min(self.max, value))
 
+    def measure_interval(self) -> float:
+        return max(1.0, float(self.measure_interval_s or 1))
+
+    def is_due(self, now: float, interval_s: float) -> bool:
+        return self.last_measurement_at == 0.0 or now - self.last_measurement_at >= interval_s
+
+    def mark_measurement_sent(self, now: float) -> None:
+        self.last_measurement_at = now
+
 
 class SensorCluster:
     def __init__(
@@ -113,6 +124,18 @@ class SensorCluster:
             self.poll_sensors_config_loop(),
             self.start_sensors_loop()
         )
+
+    def config_interval(self) -> float:
+        intervals = [
+            float(sensor.config_interval_s)
+            for sensor in self.sensors.values()
+            if sensor.config_interval_s
+        ]
+
+        if not intervals:
+            return max(1.0, float(self.config_interval_s or 1))
+
+        return max(1.0, min(intervals))
 
     async def poll_sensors_config_loop(self) -> None:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -134,35 +157,40 @@ class SensorCluster:
                         existing = self.sensors.get(sensor_id)
                         if existing is not None:
                             sensor.reading_count = existing.reading_count
+                            sensor.last_measurement_at = existing.last_measurement_at
                         sensors[sensor_id] = sensor
                     self.sensors = sensors
 
                 except Exception as e:
                     print(f"Exception in `poll_sensors_config_loop()`: {e}")
                     await asyncio.sleep(
-                        self._jitter(self.config_interval_s)
+                        self._jitter(self.config_interval())
                     )
                     continue
 
                 await asyncio.sleep(
-                    self._jitter(self.config_interval_s)
+                    self._jitter(self.config_interval())
                 )
 
     async def start_sensors_loop(self) -> None:
         async with httpx.AsyncClient(timeout=5) as client:
             while True:
+                now = time.monotonic()
                 tasks = []
 
                 for _, sensor in self.sensors.items():
                     if sensor is None:
                         continue
 
-                    tasks.append(self._send_measurement(client, sensor))
+                    interval_s = self._jitter(sensor.measure_interval())
+                    if sensor.is_due(now, interval_s):
+                        sensor.mark_measurement_sent(now)
+                        tasks.append(self._send_measurement(client, sensor))
 
                 if tasks:
                     await asyncio.gather(*tasks)
 
-                await asyncio.sleep(self._jitter(1))
+                await asyncio.sleep(0.2)
 
     async def _send_measurement(self, client: httpx.AsyncClient, sensor: Sensor) -> None:
             value = sensor._get_value()
@@ -180,7 +208,7 @@ class SensorCluster:
                 print(f"Exception in `_send_measurement()`: {e}")
                 pass
 
-    def _jitter(self, interval_s: int):
+    def _jitter(self, interval_s: float):
         return max(1.0, interval_s + random.uniform(-0.1, 0.1) * interval_s)
 
     def _normalize_cluster_id(self, cluster_id: str) -> str:

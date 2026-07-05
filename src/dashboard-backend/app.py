@@ -401,7 +401,7 @@ def api_latest_readings(cluster_id: str | None = None):
 
 
 @app.get("/api/overview")
-def api_overview(cluster_id: str | None = None):
+def api_overview():
     sensors = get_sensors()
     latest = api_latest_readings()["items"]
     parameter_rules = get_parameter_rules()
@@ -521,17 +521,31 @@ def api_alerts(
 ):
     day = parse_day(bucket_date)
     limit = clamp_limit(limit)
-    rows = get_day_rows_for_clusters(
-        "alerts_by_cluster_day",
-        "cluster_id, bucket_date, event_time, sensor_id, local_sensor_id, parameter, value, unit, alert_type, severity, alarm_state, message, explanation, processed_at",
-        day,
-        cluster_id,
-    )
+    cluster_id = normalize_cluster_id(cluster_id)
+    alert_columns = "cluster_id, bucket_date, event_time, sensor_id, local_sensor_id, parameter, value, unit, alert_type, severity, alarm_state, message, explanation, processed_at"
+
+    if sensor_id:
+        rows = query_rows(
+            f"""
+            SELECT {alert_columns}
+            FROM alerts_by_sensor_day
+            WHERE sensor_id = %s AND bucket_date = %s
+            """,
+            (sensor_id, day),
+        )
+        if cluster_id:
+            rows = [row for row in rows if row["cluster_id"] == cluster_id]
+    else:
+        rows = get_day_rows_for_clusters(
+            "alerts_by_cluster_day",
+            alert_columns,
+            day,
+            cluster_id,
+        )
+
     if severity:
         rows = [row for row in rows if row["severity"] == severity]
-    if sensor_id:
-        rows = [row for row in rows if row["sensor_id"] == sensor_id]
-    return {"cluster_id": normalize_cluster_id(cluster_id), "bucket_date": day.isoformat(), "items": rows[:limit]}
+    return {"cluster_id": cluster_id, "bucket_date": day.isoformat(), "items": rows[:limit]}
 
 
 @app.get("/api/alarms")
@@ -539,11 +553,13 @@ def api_alarms(
     cluster_id: str | None = None,
     bucket_date: str | None = None,
     sensor_id: str | None = None,
+    severity: str | None = None,
 ):
     alerts = api_alerts(
         cluster_id=cluster_id,
         bucket_date=bucket_date,
         sensor_id=sensor_id,
+        severity=severity,
         limit=500,
     )["items"]
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
@@ -582,6 +598,7 @@ def api_alarms(
 def api_ai_insights(
     sensor_id: str | None = None,
     bucket_date: str | None = None,
+    anomaly_level: str | None = None,
     limit: int = Query(default=120, ge=1, le=500),
     cluster_id: str | None = None,
 ):
@@ -604,6 +621,9 @@ def api_ai_insights(
         (sensor_id, day),
     )
     rows.reverse()
+    if anomaly_level:
+        anomaly_level = anomaly_level.strip().upper()
+        rows = [row for row in rows if row["anomaly_level"] == anomaly_level]
     return {"sensor_id": sensor_id, "bucket_date": day.isoformat(), "items": rows}
 
 

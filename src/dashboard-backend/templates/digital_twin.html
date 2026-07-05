@@ -345,6 +345,18 @@
                 <select id="cluster-select"></select>
                 <select id="sensor-select"></select>
                 <input type="date" id="date-input">
+                <select id="severity-select">
+                    <option value="">All severities</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
+                <select id="level-select">
+                    <option value="">All levels</option>
+                    <option value="NORMAL">NORMAL</option>
+                    <option value="WATCH">WATCH</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
                 <button class="btn secondary" id="refresh-btn">Refresh</button>
             </div>
         </div>
@@ -464,8 +476,47 @@ function viewUsesSensorFilter() {
     return ['readings', 'alarms', 'ai'].includes(state.view);
 }
 
+function viewUsesClusterFilter() {
+    return ['readings', 'alarms', 'ai'].includes(state.view);
+}
+
+function viewUsesDateFilter() {
+    return state.view !== 'overview';
+}
+
+function viewUsesSeverityFilter() {
+    return state.view === 'alarms';
+}
+
+function viewUsesLevelFilter() {
+    return state.view === 'ai';
+}
+
+function viewAllowsAllSensors() {
+    return state.view === 'alarms';
+}
+
+function clearClusterFilter() {
+    const clusterSelect = document.getElementById('cluster-select');
+    if (!state.clusterId && !clusterSelect.value) return;
+
+    state.clusterId = '';
+    clusterSelect.value = '';
+    state.sensors = [];
+    document.getElementById('sensor-select').innerHTML = '';
+}
+
 function updateToolbarForView() {
+    const clusterSelect = document.getElementById('cluster-select');
     document.getElementById('sensor-select').hidden = !viewUsesSensorFilter();
+    clusterSelect.hidden = !viewUsesClusterFilter();
+    document.getElementById('date-input').hidden = !viewUsesDateFilter();
+    document.getElementById('severity-select').hidden = !viewUsesSeverityFilter();
+    document.getElementById('level-select').hidden = !viewUsesLevelFilter();
+
+    if (!viewUsesClusterFilter()) {
+        clearClusterFilter();
+    }
 }
 
 function esc(value) {
@@ -634,15 +685,15 @@ function drawBarLineChart(id, labels, barData, lineData) {
 }
 
 async function loadSensors() {
-    const data = await getJson(withQuery('/api/sensors', { cluster_id: state.clusterId }));
+    const clusterId = viewUsesClusterFilter() ? state.clusterId : '';
+    const data = await getJson(withQuery('/api/sensors', { cluster_id: clusterId }));
     state.sensors = data.items || [];
     const select = document.getElementById('sensor-select');
-    select.innerHTML = state.sensors.map(sensor => `
+    const allSensorsOption = viewAllowsAllSensors() ? '<option value="">All sensors</option>' : '';
+    select.innerHTML = allSensorsOption + state.sensors.map(sensor => `
         <option value="${esc(sensor.sensor_id)}">${esc(sensor.sensor_id)} · ${esc(sensor.parameter)} · ${esc(sensor.cluster_id)}</option>
     `).join('');
-    if (select.options.length && !select.value) {
-        select.value = select.options[0].value;
-    }
+    select.value = viewAllowsAllSensors() ? '' : (select.options.length ? select.options[0].value : '');
 }
 
 async function loadClusters() {
@@ -661,7 +712,7 @@ async function loadClusters() {
 }
 
 async function loadOverview() {
-    const data = await getJson(withQuery('/api/overview', { cluster_id: state.clusterId }));
+    const data = await getJson('/api/overview');
     const metric = data.latest_metric || {};
     const ml = data.latest_ml_prediction;
     const mlRisk = ml ? `${statusPill(ml.risk_level)} ${fmt(ml.risk_score)}` : 'Waiting for model';
@@ -721,8 +772,7 @@ async function loadReadings() {
     const data = await getJson(withQuery('/api/readings', {
         sensor_id: sensorId,
         bucket_date: day,
-        limit: 240,
-        cluster_id: state.clusterId
+        limit: 240
     }));
     const rows = data.items || [];
 
@@ -748,9 +798,10 @@ async function loadReadings() {
 async function loadAlarms() {
     const sensorId = document.getElementById('sensor-select').value;
     const day = document.getElementById('date-input').value || todayIso();
+    const severity = document.getElementById('severity-select').value;
     const [alarms, alerts] = await Promise.all([
-        getJson(withQuery('/api/alarms', { cluster_id: state.clusterId, bucket_date: day, sensor_id: sensorId })),
-        getJson(withQuery('/api/alerts', { cluster_id: state.clusterId, bucket_date: day, sensor_id: sensorId, limit: 200 }))
+        getJson(withQuery('/api/alarms', { cluster_id: state.clusterId, bucket_date: day, sensor_id: sensorId, severity })),
+        getJson(withQuery('/api/alerts', { cluster_id: state.clusterId, bucket_date: day, sensor_id: sensorId, severity, limit: 200 }))
     ]);
 
     renderTable('alarms-table', [
@@ -773,10 +824,12 @@ async function loadAlarms() {
 async function loadAi() {
     const sensorId = document.getElementById('sensor-select').value;
     const day = document.getElementById('date-input').value || todayIso();
+    const anomalyLevel = document.getElementById('level-select').value;
     const data = await getJson(withQuery('/api/ai-insights', {
         sensor_id: sensorId,
         bucket_date: day,
         limit: 160,
+        anomaly_level: anomalyLevel,
         cluster_id: state.clusterId
     }));
     const rows = data.items || [];
@@ -814,12 +867,14 @@ async function loadAi() {
 
     renderTable('ai-table', [
         { label: 'Time', render: row => fmtTime(row.event_time) },
-        { label: 'Value', render: row => fmt(row.value) },
-        { label: 'Avg', render: row => fmt(row.rolling_average) },
-        { label: 'Z', render: row => fmt(row.z_score) },
-        { label: 'Rate', render: row => fmt(row.rate_of_change) },
+        { label: 'Reading', render: row => `${fmt(row.value)} ${row.unit || ''}` },
+        { label: 'Rolling Avg', render: row => fmt(row.rolling_average) },
         { label: 'Score', render: row => fmt(row.anomaly_score) },
         { label: 'Level', key: 'anomaly_level' },
+        { label: 'Threshold', render: row => fmt(row.threshold_component) },
+        { label: 'Statistical', render: row => fmt(row.statistical_component) },
+        { label: 'Rate', render: row => fmt(row.rate_component) },
+        { label: 'Explanation', key: 'explanation' },
     ], rows.slice(-20).reverse());
 }
 
@@ -942,8 +997,8 @@ async function loadPerformance() {
 
 async function refreshCurrentView() {
     try {
-        if (!state.sensors.length) await loadSensors();
         updateToolbarForView();
+        if (!state.sensors.length) await loadSensors();
         if (state.view === 'overview') await loadOverview();
         if (state.view === 'readings') await loadReadings();
         if (state.view === 'alarms') await loadAlarms();
@@ -958,10 +1013,21 @@ async function refreshCurrentView() {
 
 document.querySelectorAll('.nav button').forEach(button => {
     button.addEventListener('click', async () => {
+        const previousView = state.view;
         document.querySelectorAll('.nav button').forEach(item => item.classList.remove('active'));
         document.querySelectorAll('.view').forEach(item => item.classList.remove('active'));
         button.classList.add('active');
         state.view = button.dataset.view;
+        if (previousView !== state.view) {
+            state.sensors = [];
+            document.getElementById('sensor-select').innerHTML = '';
+        }
+        if (previousView !== 'alarms' && state.view === 'alarms') {
+            document.getElementById('severity-select').value = '';
+        }
+        if (previousView !== 'ai' && state.view === 'ai') {
+            document.getElementById('level-select').value = '';
+        }
         document.getElementById(state.view).classList.add('active');
         document.getElementById('view-title').textContent = titles[state.view];
         updateToolbarForView();
@@ -971,8 +1037,7 @@ document.querySelectorAll('.nav button').forEach(button => {
 
 document.getElementById('refresh-btn').addEventListener('click', refreshCurrentView);
 document.getElementById('cluster-select').addEventListener('change', async event => {
-    event.target.value = '';
-    state.clusterId = '';
+    state.clusterId = event.target.value;
     state.sensors = [];
     document.getElementById('sensor-select').innerHTML = '';
     await loadSensors();
@@ -980,6 +1045,8 @@ document.getElementById('cluster-select').addEventListener('change', async event
 });
 document.getElementById('sensor-select').addEventListener('change', refreshCurrentView);
 document.getElementById('date-input').addEventListener('change', refreshCurrentView);
+document.getElementById('severity-select').addEventListener('change', refreshCurrentView);
+document.getElementById('level-select').addEventListener('change', refreshCurrentView);
 document.getElementById('date-input').value = todayIso();
 updateToolbarForView();
 

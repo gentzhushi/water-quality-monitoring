@@ -477,7 +477,7 @@ function viewUsesSensorFilter() {
 }
 
 function viewUsesClusterFilter() {
-    return ['readings', 'alarms', 'ai'].includes(state.view);
+    return ['readings', 'alarms', 'ai', 'performance'].includes(state.view);
 }
 
 function viewUsesDateFilter() {
@@ -1038,9 +1038,11 @@ document.querySelectorAll('.nav button').forEach(button => {
 document.getElementById('refresh-btn').addEventListener('click', refreshCurrentView);
 document.getElementById('cluster-select').addEventListener('change', async event => {
     state.clusterId = event.target.value;
-    state.sensors = [];
-    document.getElementById('sensor-select').innerHTML = '';
-    await loadSensors();
+    if (viewUsesSensorFilter()) {
+        state.sensors = [];
+        document.getElementById('sensor-select').innerHTML = '';
+        await loadSensors();
+    }
     await refreshCurrentView();
 });
 document.getElementById('sensor-select').addEventListener('change', refreshCurrentView);

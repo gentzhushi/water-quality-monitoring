@@ -45,7 +45,6 @@ From the repository root, use the Spark image:
 ```sh
 docker run --rm -v "$PWD/src/ml:/opt/ml" -w /opt/ml water-quality-spark-ml:latest python3 generate_training_data.py
 docker run --rm -v "$PWD/src/ml:/opt/ml" -w /opt/ml water-quality-spark-ml:latest python3 train_model.py
-docker run --rm -v "$PWD/src/ml:/opt/ml" -w /opt/ml water-quality-spark-ml:latest python3 predict_sample.py
 ```
 
 Generated files:
